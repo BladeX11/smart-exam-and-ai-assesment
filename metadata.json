@@ -1,0 +1,8 @@
+{
+  "name": "SmartAssess AI",
+  "description": "Production-grade AI-proctored examination platform with cheat detection, risk profiling, and automated feedback.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

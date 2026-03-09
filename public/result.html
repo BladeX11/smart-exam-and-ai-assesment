@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Results - SmartAssess AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Lexend', sans-serif; background-color: #f6f6f8; }
+        .card { background: white; border: 1px solid #e2e8f0; border-radius: 1.5rem; padding: 2rem; }
+        .primary-btn { background-color: #135bec; color: white; border-radius: 0.75rem; font-weight: 700; padding: 0.75rem 1.5rem; }
+        .badge { border-radius: 9999px; padding: 0.25rem 1rem; font-size: 0.875rem; font-weight: 700; }
+        .badge-low { background-color: #dcfce7; color: #15803d; }
+        .badge-medium { background-color: #fef3c7; color: #b45309; }
+        .badge-high { background-color: #fee2e2; color: #b91c1c; }
+    </style>
+</head>
+<body class="min-h-screen py-12 px-4">
+    <div class="max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-12">
+            <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-4xl text-[#135bec]">shield_person</span>
+                <h1 class="text-3xl font-bold text-slate-800">SmartAssess AI</h1>
+            </div>
+            <button onclick="window.location.href='/student-dashboard.html'" class="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors">
+                <span class="material-symbols-outlined">arrow_back</span> Back to Dashboard
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            <!-- Main Score Card -->
+            <div class="lg:col-span-2 card flex flex-col items-center justify-center text-center">
+                <p class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">Your Final Score</p>
+                <div class="relative w-48 h-48 flex items-center justify-center mb-6">
+                    <canvas id="scoreChart"></canvas>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <p id="scoreText" class="text-5xl font-black text-slate-800">0</p>
+                        <p id="totalMarks" class="text-sm font-bold text-slate-400">/ 100</p>
+                    </div>
+                </div>
+                <h2 id="gradeText" class="text-2xl font-bold text-slate-800 mb-1">Excellent Performance!</h2>
+                <p id="percentileText" class="text-slate-500 font-medium">You scored better than 85% of students.</p>
+            </div>
+
+            <!-- Integrity Card -->
+            <div class="card flex flex-col">
+                <h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-emerald-500">verified_user</span> Integrity Report
+                </h3>
+                <div class="space-y-6 flex-1">
+                    <div>
+                        <div class="flex justify-between items-end mb-2">
+                            <p class="text-xs font-bold text-slate-400 uppercase">Trust Index (ATI)</p>
+                            <p id="atiScore" class="text-xl font-bold text-emerald-600">100%</p>
+                        </div>
+                        <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div id="atiBar" class="h-full bg-emerald-500 transition-all duration-1000" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <p class="text-sm font-bold text-slate-600">Risk Level</p>
+                        <span id="riskBadge" class="badge badge-low">LOW RISK</span>
+                    </div>
+                    <div class="pt-4 border-t border-slate-100">
+                        <p class="text-xs font-bold text-slate-400 uppercase mb-3">Violation Summary</p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-sm">tab</span>
+                                <span id="tabCount" class="text-xs font-bold text-slate-600">0 Tabs</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-sm">face</span>
+                                <span id="faceCount" class="text-xs font-bold text-slate-600">0 Face</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-sm">visibility</span>
+                                <span id="gazeCount" class="text-xs font-bold text-slate-600">0 Gaze</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-sm">mic</span>
+                                <span id="voiceCount" class="text-xs font-bold text-slate-600">0 Voice</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-sm">devices</span>
+                                <span id="objectCount" class="text-xs font-bold text-slate-600">0 Object</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-sm">content_copy</span>
+                                <span id="copyCount" class="text-xs font-bold text-slate-600">0 Copy</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Study Plan Section -->
+        <div class="card mb-8">
+            <div class="flex items-center justify-between mb-8">
+                <h3 class="text-2xl font-bold text-slate-800 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-[#135bec] text-3xl">psychology</span> AI Personalized Study Plan
+                </h3>
+                <button class="text-sm font-bold text-[#135bec] hover:underline">Download PDF Report</button>
+            </div>
+
+            <div id="aiLoading" class="py-20 text-center">
+                <div class="animate-spin inline-block w-12 h-12 border-4 border-[#135bec] border-t-transparent rounded-full mb-4"></div>
+                <p class="text-slate-500 font-medium">Claude AI is analyzing your performance patterns...</p>
+            </div>
+
+            <div id="aiContent" class="hidden space-y-8">
+                <div class="p-6 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p id="aiFeedback" class="text-slate-700 leading-relaxed italic">"Great job on the exam! You showed strong understanding of Networking, but could improve on Algorithms..."</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-400 uppercase mb-4">Topic Performance</h4>
+                        <div id="topicList" class="space-y-4">
+                            <!-- Topic bars -->
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-400 uppercase mb-4">2-Week Revision Plan</h4>
+                        <div id="studyPlan" class="space-y-3">
+                            <!-- Study plan items -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script>
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const attemptId = urlParams.get('id');
+        if (!attemptId) window.location.href = '/student-dashboard.html';
+
+        async function loadResults() {
+            try {
+                const attemptFull = await api.attempts.getStatus(attemptId);
+                
+                // Update UI
+                document.getElementById('scoreText').textContent = Math.round(attemptFull.score || 0);
+                document.getElementById('totalMarks').textContent = `/ ${attemptFull.total_marks || 100}`;
+                document.getElementById('atiScore').textContent = `${Math.round(attemptFull.ati_score || 100)}%`;
+                document.getElementById('atiBar').style.width = `${attemptFull.ati_score || 100}%`;
+                
+                const riskBadge = document.getElementById('riskBadge');
+                const risk = attemptFull.risk_level || 'low';
+                riskBadge.textContent = `${risk.toUpperCase()} RISK`;
+                riskBadge.className = `badge badge-${risk}`;
+
+                document.getElementById('tabCount').textContent = `${attemptFull.tab_switches || 0} Tabs`;
+                document.getElementById('faceCount').textContent = `${attemptFull.face_violations || 0} Face`;
+                document.getElementById('gazeCount').textContent = `${attemptFull.gaze_violations || 0} Gaze`;
+                document.getElementById('voiceCount').textContent = `${attemptFull.voice_violations || 0} Voice`;
+                document.getElementById('objectCount').textContent = `${attemptFull.object_violations || 0} Object`;
+                document.getElementById('copyCount').textContent = `${attemptFull.copy_paste_attempts || 0} Copy`;
+
+                // Update grade text based on score
+                const scorePercent = attemptFull.total_marks ? Math.round((attemptFull.score || 0) / attemptFull.total_marks * 100) : 0;
+                const gradeText = document.getElementById('gradeText');
+                const percentileText = document.getElementById('percentileText');
+                if (scorePercent >= 90) {
+                    gradeText.textContent = 'Excellent Performance!';
+                    percentileText.textContent = 'Outstanding work. Keep it up!';
+                } else if (scorePercent >= 75) {
+                    gradeText.textContent = 'Great Performance!';
+                    percentileText.textContent = 'Well done. A few areas to improve.';
+                } else if (scorePercent >= 50) {
+                    gradeText.textContent = 'Good Effort!';
+                    percentileText.textContent = 'Decent performance with room for improvement.';
+                } else if (scorePercent >= 25) {
+                    gradeText.textContent = 'Needs Improvement';
+                    percentileText.textContent = 'Review the study plan below to strengthen weak areas.';
+                } else {
+                    gradeText.textContent = 'Study Required';
+                    percentileText.textContent = 'Please review all topics and retake when ready.';
+                }
+
+                // Render Score Chart
+                const ctx = document.getElementById('scoreChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        datasets: [{
+                            data: [attemptFull.score || 0, (attemptFull.total_marks || 100) - (attemptFull.score || 0)],
+                            backgroundColor: ['#135bec', '#f1f5f9'],
+                            borderWidth: 0,
+                            circumference: 270,
+                            rotation: 225,
+                            cutout: '85%',
+                            borderRadius: 20
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                    }
+                });
+
+                // Load AI Report
+                loadAIReport(attemptFull);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function loadAIReport(attempt) {
+            try {
+                let report;
+                try {
+                    report = await api.ai.getReport(attemptId);
+                } catch (e) {
+                    // Generate new report if not found
+                    report = await generateAIReport(attempt);
+                    await api.ai.saveReport(attemptId, report);
+                }
+
+                document.getElementById('aiLoading').classList.add('hidden');
+                document.getElementById('aiContent').classList.remove('hidden');
+
+                let plan = null;
+                try {
+                    plan = typeof report.study_plan === 'string' ? JSON.parse(report.study_plan) : report.study_plan;
+                } catch (e) { plan = null; }
+                
+                // Display AI feedback
+                const feedback = plan?.overall_assessment || 'Good performance with room for improvement';
+                document.getElementById('aiFeedback').textContent = `"${feedback}"`;
+
+                // Display topic performance
+                const topicList = document.getElementById('topicList');
+                topicList.innerHTML = '';
+                
+                if (plan && plan.weak_areas && plan.strong_areas) {
+                    const allAreas = [
+                        ...plan.weak_areas.map(area => ({ topic: area, status: 'weak', score: 30 })),
+                        ...plan.strong_areas.map(area => ({ topic: area, status: 'strong', score: 85 }))
+                    ];
+                    
+                    allAreas.slice(0, 5).forEach(t => {
+                        const div = document.createElement('div');
+                        const color = t.status === 'strong' ? 'emerald' : (t.status === 'average' ? 'amber' : 'red');
+                        div.innerHTML = `
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-bold text-slate-700">${t.topic}</span>
+                                <span class="text-xs font-bold text-${color}-600 uppercase">${t.status}</span>
+                            </div>
+                            <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div class="h-full bg-${color}-500" style="width: ${t.score}%"></div>
+                            </div>
+                        `;
+                        topicList.appendChild(div);
+                    });
+                }
+
+                // Display study plan
+                const studyPlan = document.getElementById('studyPlan');
+                studyPlan.innerHTML = '';
+                
+                if (plan && plan.recommendations && Array.isArray(plan.recommendations)) {
+                    plan.recommendations.slice(0, 5).forEach((item, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100';
+                        div.innerHTML = `
+                            <div class="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-400 uppercase">
+                                ${['MON', 'TUE', 'WED', 'THU', 'FRI'][index] || 'DAY'}
+                            </div>
+                            <div class="flex-1">
+                                <p class="text-xs font-bold text-slate-700">${item.topic}</p>
+                                <p class="text-[10px] text-slate-400">${item.study_time_hours || 1} Hours - ${item.priority || 'medium'} priority</p>
+                            </div>
+                        `;
+                        studyPlan.appendChild(div);
+                    });
+                }
+            } catch (err) {
+                console.error('AI Report Error:', err);
+                document.getElementById('aiLoading').innerHTML = '<p class="text-slate-400">AI Analysis temporarily unavailable.</p>';
+            }
+        }
+
+        async function generateAIReport(attempt) {
+            try {
+                // Use our AI study plan endpoint
+                const studyPlan = await api.ai.getStudyPlan(attemptId);
+                
+                return {
+                    risk_score: attempt.ati_score < 70 ? 80 : 20,
+                    anomaly_detected: attempt.ati_score < 70,
+                    study_plan: studyPlan.study_plan
+                };
+            } catch (error) {
+                console.error('Failed to generate AI report:', error);
+                
+                // Fallback report
+                return {
+                    risk_score: attempt.ati_score < 70 ? 80 : 20,
+                    anomaly_detected: attempt.ati_score < 70,
+                    study_plan: {
+                        overall_assessment: `Score of ${Math.round((attempt.score / attempt.total_marks) * 100)}% shows room for improvement`,
+                        weak_areas: ['Review topics where you scored low'],
+                        strong_areas: ['Continue practicing your strong areas'],
+                        recommendations: [
+                            { topic: 'Review weak topics', priority: 'high', study_time_hours: 3 },
+                            { topic: 'Practice similar questions', priority: 'medium', study_time_hours: 2 }
+                        ]
+                    }
+                };
+            }
+        }
+
+        window.onload = loadResults;
+    </script>
+</body>
+</html>

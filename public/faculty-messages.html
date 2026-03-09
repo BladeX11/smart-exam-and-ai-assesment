@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messages & Doubts - SmartAssess AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <style>
+        body { font-family: 'Lexend', sans-serif; background-color: #f6f6f8; }
+        .card { background: white; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1.5rem; }
+        .primary-btn { background-color: #135bec; color: white; border-radius: 0.75rem; font-weight: 700; padding: 0.75rem 1.5rem; }
+        .secondary-btn { border: 1px solid #e2e8f0; border-radius: 0.75rem; font-weight: 600; padding: 0.75rem 1.5rem; }
+        .sidebar-link { display: flex; items-center: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.75rem; color: #64748b; font-weight: 500; transition: all 0.2s; }
+        .sidebar-link:hover { background-color: #f8fafc; color: #135bec; }
+        .sidebar-link.active { background-color: #eff6ff; color: #135bec; }
+        .tab-btn { padding-bottom: 0.75rem; font-size: 0.875rem; font-weight: 700; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab-btn.active { color: #135bec; border-color: #135bec; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-right border-slate-200 p-6 flex flex-col">
+        <div class="flex items-center gap-2 mb-10">
+            <span class="material-symbols-outlined text-3xl text-[#135bec]">shield_person</span>
+            <span class="text-xl font-bold text-slate-800">SmartAssess AI</span>
+        </div>
+
+        <nav class="space-y-2 flex-1">
+            <a href="/faculty-dashboard.html" class="sidebar-link">
+                <span class="material-symbols-outlined">dashboard</span> Dashboard
+            </a>
+            <a href="/faculty-question-bank.html" class="sidebar-link">
+                <span class="material-symbols-outlined">database</span> Question Bank
+            </a>
+            <a href="/student-risk-profiles.html" class="sidebar-link">
+                <span class="material-symbols-outlined">group</span> Student Risk
+            </a>
+            <a href="/faculty-messages.html" class="sidebar-link active">
+                <span class="material-symbols-outlined">mail</span> Messages
+            </a>
+        </nav>
+
+        <div class="mt-auto pt-6 border-t border-slate-100">
+            <button onclick="handleLogout()" class="sidebar-link w-full text-red-500 hover:bg-red-50">
+                <span class="material-symbols-outlined">logout</span> Logout
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-8 overflow-y-auto">
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">Messages & Doubts</h1>
+                <p class="text-sm text-slate-500">Manage student queries and broadcast announcements.</p>
+            </div>
+            <div class="flex gap-4">
+                <select id="examSelect" class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold">
+                    <option value="1">CS Fundamentals</option>
+                </select>
+                <button onclick="openBroadcastModal()" class="primary-btn flex items-center gap-2">
+                    <span class="material-symbols-outlined">campaign</span> Broadcast
+                </button>
+            </div>
+        </header>
+
+        <div class="flex gap-8 mb-8">
+            <button onclick="switchTab('messages')" id="tabMessages" class="tab-btn active">Live Chat Messages</button>
+            <button onclick="switchTab('doubts')" id="tabDoubts" class="tab-btn text-slate-400">Question Doubts</button>
+        </div>
+
+        <!-- Messages Tab -->
+        <div id="messagesContent" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-1 card flex flex-col h-[600px]">
+                <h3 class="text-sm font-bold text-slate-400 uppercase mb-4">Active Conversations</h3>
+                <div id="chatList" class="flex-1 overflow-y-auto space-y-2">
+                    <!-- Chat list items -->
+                    <div class="p-3 bg-blue-50 rounded-xl border border-blue-100 cursor-pointer">
+                        <div class="flex justify-between items-center mb-1">
+                            <p class="text-sm font-bold text-slate-800">Rahul Sharma</p>
+                            <span class="text-[10px] text-slate-400">2m ago</span>
+                        </div>
+                        <p class="text-xs text-slate-500 truncate">Can I use a calculator for Section B?</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 card flex flex-col h-[600px]">
+                <div class="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-[#135bec] text-white flex items-center justify-center font-bold">RS</div>
+                        <div>
+                            <p class="text-sm font-bold text-slate-800">Rahul Sharma</p>
+                            <p class="text-[10px] text-emerald-500 font-bold uppercase">Online</p>
+                        </div>
+                    </div>
+                    <button class="text-slate-400 hover:text-red-500"><span class="material-symbols-outlined">block</span></button>
+                </div>
+
+                <div id="chatMessages" class="flex-1 overflow-y-auto space-y-4 mb-6 pr-2">
+                    <!-- Chat messages -->
+                    <div class="flex flex-col items-start">
+                        <div class="bg-slate-100 p-3 rounded-2xl rounded-tl-none max-w-[80%]">
+                            <p class="text-xs text-slate-700">Hello Professor, I have a doubt regarding Section B. Is a physical calculator allowed?</p>
+                        </div>
+                        <span class="text-[8px] text-slate-400 mt-1 ml-1">10:45 AM</span>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <input type="text" id="messageInput" placeholder="Type your reply..." class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#135bec]">
+                    <button onclick="sendReply()" class="primary-btn px-6">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Doubts Tab -->
+        <div id="doubtsContent" class="hidden space-y-6">
+            <div class="card">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                <th class="pb-4">Student</th>
+                                <th class="pb-4">Question</th>
+                                <th class="pb-4">Doubt Category</th>
+                                <th class="pb-4">Status</th>
+                                <th class="pb-4">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="doubtTableBody" class="divide-y divide-slate-50">
+                            <!-- Doubt rows -->
+                            <tr class="hover:bg-slate-50/50">
+                                <td class="py-4">
+                                    <p class="text-sm font-bold text-slate-800">Priya Patel</p>
+                                    <p class="text-[10px] text-slate-400">ID: STU-002</p>
+                                </td>
+                                <td class="py-4">
+                                    <p class="text-sm text-slate-600 line-clamp-1">What is the capital of France?</p>
+                                </td>
+                                <td class="py-4">
+                                    <span class="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-bold uppercase">Typo in question</span>
+                                </td>
+                                <td class="py-4">
+                                    <span class="badge badge-draft">OPEN</span>
+                                </td>
+                                <td class="py-4">
+                                    <div class="flex gap-2">
+                                        <button class="px-3 py-1 bg-blue-50 text-[#135bec] rounded-lg text-[10px] font-bold">Resolve</button>
+                                        <button class="px-3 py-1 bg-slate-50 text-slate-500 rounded-lg text-[10px] font-bold">Dismiss</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Broadcast Modal -->
+    <div id="broadcastModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-8 shadow-2xl">
+            <h3 class="text-xl font-bold text-slate-800 mb-4">Send Broadcast</h3>
+            <p class="text-sm text-slate-500 mb-6">This message will be shown as an announcement to all students in the selected exam.</p>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-slate-600 mb-1">Announcement Message</label>
+                <textarea id="broadcastText" rows="4" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" placeholder="e.g. Question 12 has a typo, please ignore option D."></textarea>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="closeBroadcastModal()" class="flex-1 secondary-btn">Cancel</button>
+                <button onclick="sendBroadcast()" class="flex-1 primary-btn">Send to All</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-6 right-6 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-2xl z-[300]"></div>
+
+    <script src="/js/api.js"></script>
+    <script>
+        const user = JSON.parse(localStorage.getItem('user'));
+        if (!user || user.role !== 'faculty') window.location.href = '/index.html';
+
+        let exams = [];
+        let currentExamId = null;
+        let currentStudentId = null;
+        let messages = [];
+        let doubts = [];
+
+        async function init() {
+            try {
+                exams = await api.exams.getAll();
+                const select = document.getElementById('examSelect');
+                select.innerHTML = exams.map(e => `<option value="${e.id}">${e.title}</option>`).join('');
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                currentExamId = urlParams.get('examId') || (exams.length > 0 ? exams[0].id : null);
+                currentStudentId = urlParams.get('studentId');
+                
+                if (currentExamId) {
+                    select.value = currentExamId;
+                    await loadData();
+                }
+
+                select.onchange = (e) => {
+                    currentExamId = e.target.value;
+                    loadData();
+                };
+
+                startPolling();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function loadData() {
+            if (!currentExamId) return;
+            try {
+                messages = await api.messages.get(currentExamId);
+                doubts = await api.doubts.get(currentExamId);
+                renderChatList();
+                renderDoubts();
+                if (currentStudentId) renderChat(currentStudentId);
+            } catch (err) {
+                console.error('Failed to load data', err);
+            }
+        }
+
+        function renderChatList() {
+            const list = document.getElementById('chatList');
+            const students = {};
+            messages.forEach(m => {
+                if (m.sender_role === 'student') {
+                    students[m.student_id] = { name: m.sender_name, lastMessage: m.message, time: m.created_at };
+                }
+            });
+
+            list.innerHTML = Object.entries(students).map(([id, s]) => `
+                <div onclick="renderChat(${id})" class="p-3 ${currentStudentId == id ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-100'} rounded-xl border cursor-pointer hover:bg-slate-50 transition-colors">
+                    <div class="flex justify-between items-center mb-1">
+                        <p class="text-sm font-bold text-slate-800">${s.name}</p>
+                        <span class="text-[8px] text-slate-400">${new Date(s.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>
+                    <p class="text-xs text-slate-500 truncate">${s.lastMessage}</p>
+                </div>
+            `).join('');
+        }
+
+        function renderChat(studentId) {
+            currentStudentId = studentId;
+            const chatMessages = document.getElementById('chatMessages');
+            const studentMessages = messages.filter(m => m.student_id == studentId);
+            const studentName = studentMessages.find(m => m.sender_role === 'student')?.sender_name || 'Student';
+            
+            // Update header
+            document.querySelector('.lg\\:col-span-2 .text-sm.font-bold').textContent = studentName;
+            
+            chatMessages.innerHTML = studentMessages.map(m => `
+                <div class="flex flex-col ${m.sender_role === 'faculty' ? 'items-end' : 'items-start'}">
+                    <div class="${m.sender_role === 'faculty' ? 'bg-[#135bec] text-white rounded-tr-none' : 'bg-slate-100 text-slate-700 rounded-tl-none'} p-3 rounded-2xl max-w-[80%]">
+                        <p class="text-xs">${m.message}</p>
+                    </div>
+                    <span class="text-[8px] text-slate-400 mt-1 ${m.sender_role === 'faculty' ? 'mr-1' : 'ml-1'}">${new Date(m.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                </div>
+            `).join('');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Highlight in list
+            renderChatList();
+        }
+
+        async function sendReply() {
+            const input = document.getElementById('messageInput');
+            if (!input.value.trim() || !currentStudentId) return;
+            try {
+                await api.messages.send({
+                    examId: currentExamId,
+                    studentId: currentStudentId,
+                    message: input.value
+                });
+                input.value = '';
+                await loadData();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function renderDoubts() {
+            const body = document.getElementById('doubtTableBody');
+            body.innerHTML = doubts.map(d => `
+                <tr class="hover:bg-slate-50/50">
+                    <td class="py-4">
+                        <p class="text-sm font-bold text-slate-800">${d.student_name}</p>
+                        <p class="text-[10px] text-slate-400">ID: STU-00${d.student_id}</p>
+                    </td>
+                    <td class="py-4">
+                        <p class="text-sm text-slate-600 line-clamp-1">${d.question_text}</p>
+                        <p class="text-[10px] text-slate-400 italic">"${d.doubt_text}"</p>
+                    </td>
+                    <td class="py-4">
+                        <span class="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-bold uppercase">Question Doubt</span>
+                    </td>
+                    <td class="py-4">
+                        <span class="badge ${d.status === 'open' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}">${d.status.toUpperCase()}</span>
+                    </td>
+                    <td class="py-4">
+                        <div class="flex gap-2">
+                            ${d.status === 'open' ? `<button onclick="resolveDoubt(${d.id})" class="px-3 py-1 bg-blue-50 text-[#135bec] rounded-lg text-[10px] font-bold hover:bg-blue-100">Resolve</button>` : ''}
+                            <button class="px-3 py-1 bg-slate-50 text-slate-500 rounded-lg text-[10px] font-bold">Details</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function resolveDoubt(id) {
+            const response = prompt('Enter resolution message for student:');
+            if (response === null) return;
+            try {
+                await api.doubts.resolve(id, { faculty_response: response, status: 'resolved' });
+                showToast('Doubt resolved');
+                await loadData();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function startPolling() {
+            setInterval(loadData, 5000);
+        }
+
+        function switchTab(tab) {
+            document.getElementById('messagesContent').classList.toggle('hidden', tab !== 'messages');
+            document.getElementById('doubtsContent').classList.toggle('hidden', tab !== 'doubts');
+            document.getElementById('tabMessages').classList.toggle('active', tab === 'messages');
+            document.getElementById('tabDoubts').classList.toggle('active', tab === 'doubts');
+            document.getElementById('tabMessages').classList.toggle('text-slate-400', tab !== 'messages');
+            document.getElementById('tabDoubts').classList.toggle('text-slate-400', tab !== 'doubts');
+        }
+
+        function openBroadcastModal() { document.getElementById('broadcastModal').classList.remove('hidden'); }
+        function closeBroadcastModal() { document.getElementById('broadcastModal').classList.add('hidden'); }
+
+        async function sendBroadcast() {
+            const text = document.getElementById('broadcastText').value;
+            if (!text.trim()) return;
+            try {
+                await api.messages.send({
+                    examId: currentExamId,
+                    message: text,
+                    message_type: 'announcement'
+                });
+                showToast('Announcement broadcasted successfully!');
+                closeBroadcastModal();
+                document.getElementById('broadcastText').value = '';
+                await loadData();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = '/index.html';
+        }
+
+        function showToast(msg, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.backgroundColor = type === 'error' ? '#ef4444' : '#1e293b';
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

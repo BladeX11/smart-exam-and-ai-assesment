@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faculty Dashboard - SmartAssess AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Lexend', sans-serif; background-color: #f6f6f8; }
+        .card { background: white; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1.5rem; }
+        .primary-btn { background-color: #135bec; color: white; border-radius: 0.75rem; font-weight: 700; padding: 0.75rem 1.5rem; }
+        .secondary-btn { border: 1px solid #e2e8f0; border-radius: 0.75rem; font-weight: 600; padding: 0.75rem 1.5rem; }
+        .badge { border-radius: 9999px; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 700; }
+        .badge-active { background-color: #dcfce7; color: #15803d; }
+        .badge-draft { background-color: #f1f5f9; color: #64748b; }
+        .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.75rem; color: #64748b; font-weight: 500; transition: all 0.2s; }
+        .sidebar-link:hover { background-color: #f8fafc; color: #135bec; }
+        .sidebar-link.active { background-color: #eff6ff; color: #135bec; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-right border-slate-200 p-6 flex flex-col">
+        <div class="flex items-center gap-2 mb-10">
+            <span class="material-symbols-outlined text-3xl text-[#135bec]">shield_person</span>
+            <span class="text-xl font-bold text-slate-800">SmartAssess AI</span>
+        </div>
+
+        <nav class="space-y-2 flex-1">
+            <a href="/faculty-dashboard.html" class="sidebar-link active">
+                <span class="material-symbols-outlined">dashboard</span> Dashboard
+            </a>
+            <a href="/faculty-question-bank.html" class="sidebar-link">
+                <span class="material-symbols-outlined">database</span> Question Bank
+            </a>
+            <a href="/student-risk-profiles.html" class="sidebar-link">
+                <span class="material-symbols-outlined">group</span> Student Risk
+            </a>
+            <a href="/faculty-messages.html" class="sidebar-link">
+                <span class="material-symbols-outlined">mail</span> Messages
+            </a>
+        </nav>
+
+        <div class="mt-auto pt-6 border-t border-slate-100">
+            <button onclick="handleLogout()" class="sidebar-link w-full text-red-500 hover:bg-red-50">
+                <span class="material-symbols-outlined">logout</span> Logout
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-8 overflow-y-auto">
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">Faculty Dashboard</h1>
+                <p class="text-sm text-slate-500">Welcome back, Prof. <span id="facultyName">...</span></p>
+            </div>
+            <button onclick="openCreateModal()" class="primary-btn flex items-center gap-2">
+                <span class="material-symbols-outlined">add</span> Create New Exam
+            </button>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+            <div class="card">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Active Exams</p>
+                <p id="statActive" class="text-3xl font-bold text-slate-800">0</p>
+            </div>
+            <div class="card">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Total Students</p>
+                <p id="statStudents" class="text-3xl font-bold text-slate-800">0</p>
+            </div>
+            <div class="card">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">High Risk Alerts</p>
+                <p id="statRisk" class="text-3xl font-bold text-red-500">0</p>
+            </div>
+            <div class="card">
+                <p class="text-xs font-bold text-slate-400 uppercase mb-1">Pending Doubts</p>
+                <p id="statDoubts" class="text-3xl font-bold text-amber-500">0</p>
+            </div>
+        </div>
+
+        <!-- Heatmap Section -->
+        <div class="card mb-10">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold text-slate-800">Violation Heatmap (Live)</h3>
+                <select id="heatmapExamSelect" class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1 text-xs font-bold">
+                    <option>Select Exam</option>
+                </select>
+            </div>
+            <div class="h-64 w-full">
+                <canvas id="violationHeatmap"></canvas>
+            </div>
+        </div>
+
+        <!-- Recent Results -->
+        <div class="card mb-10">
+            <h3 class="text-lg font-bold text-slate-800 mb-6">Recent Results</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                            <th class="pb-4">Student Name</th>
+                            <th class="pb-4">Exam</th>
+                            <th class="pb-4">Score</th>
+                            <th class="pb-4">ATI Score</th>
+                            <th class="pb-4">Risk Level</th>
+                            <th class="pb-4">Status</th>
+                            <th class="pb-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentResultsBody" class="divide-y divide-slate-50">
+                        <!-- Recent results rows -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Performance Charts -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+            <div class="card">
+                <h3 class="text-lg font-bold text-slate-800 mb-6">Marks Comparison</h3>
+                <div class="h-64">
+                    <canvas id="marksChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3 class="text-lg font-bold text-slate-800 mb-6">Risk Distribution</h3>
+                <div class="h-64">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exam List -->
+        <div class="card">
+            <h3 class="text-lg font-bold text-slate-800 mb-6">Recent Exams</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                            <th class="pb-4">Exam Title</th>
+                            <th class="pb-4">Status</th>
+                            <th class="pb-4">Duration</th>
+                            <th class="pb-4">Submissions</th>
+                            <th class="pb-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="examTableBody" class="divide-y divide-slate-50">
+                        <!-- Exam rows -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Create Exam Modal -->
+    <div id="createModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <h3 class="text-2xl font-bold text-slate-800 mb-6">Create New Exam</h3>
+            <form onsubmit="handleCreateExam(event)" class="space-y-6">
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Exam Title</label>
+                        <input type="text" id="examTitle" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Duration (Minutes)</label>
+                        <input type="number" id="examDuration" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Total Marks</label>
+                        <input type="number" id="examMarks" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" required>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Instructions</label>
+                    <textarea id="examInstructions" rows="3" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm"></textarea>
+                </div>
+                <div class="flex gap-4 pt-4">
+                    <button type="button" onclick="closeCreateModal()" class="flex-1 secondary-btn">Cancel</button>
+                    <button type="submit" class="flex-1 primary-btn">Create Exam</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Questions Modal -->
+    <div id="addQuestionsModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-3xl w-full p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">Add Questions to Exam</h2>
+                <button onclick="closeAddQuestionsModal()" class="p-2 text-slate-400 hover:text-slate-600 rounded-lg">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="flex gap-2 mb-6 border-b border-slate-200">
+                <button onclick="showTab('bankTab')" id="bankTabBtn" class="px-4 py-2 text-sm font-bold text-[#135bec] border-b-2 border-[#135bec]">From Question Bank</button>
+                <button onclick="showTab('newTab')" id="newTabBtn" class="px-4 py-2 text-sm font-bold text-slate-400">Create New Question</button>
+            </div>
+            <div id="bankTab">
+                <div class="flex gap-4 mb-4">
+                    <input type="text" id="questionSearch" placeholder="Search questions..." oninput="filterQuestions()" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                    <select id="topicFilter" onchange="filterQuestions()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        <option value="">All Topics</option>
+                    </select>
+                    <select id="difficultyFilter" onchange="filterQuestions()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        <option value="">All Difficulties</option>
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                </div>
+                <div id="questionBankList" class="space-y-3 max-h-80 overflow-y-auto mb-4"></div>
+                <button onclick="addSelectedQuestions()" class="primary-btn w-full">Add Selected Questions</button>
+            </div>
+            <div id="newTab" class="hidden space-y-4">
+                <textarea id="newQuestionText" placeholder="Question text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" rows="3"></textarea>
+                <div class="grid grid-cols-2 gap-4">
+                    <input id="optionA" placeholder="Option A" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                    <input id="optionB" placeholder="Option B" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                    <input id="optionC" placeholder="Option C" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                    <input id="optionD" placeholder="Option D" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                </div>
+                <div class="grid grid-cols-4 gap-4">
+                    <select id="correctAnswer" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                    </select>
+                    <input id="questionTopic" placeholder="Topic" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                    <select id="questionDifficulty" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                        <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+                    </select>
+                    <input id="questionMarks" type="number" value="1" min="1" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm">
+                </div>
+                <button onclick="saveNewQuestion()" class="primary-btn w-full">Add to Exam</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-6 right-6 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-2xl z-[300]"></div>
+
+    <script src="/js/api.js"></script>
+    <script>
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/index.html';
+        const user = JSON.parse(atob(token.split('.')[1]));
+        if (user.role !== 'faculty') window.location.href = '/index.html';
+        document.getElementById('facultyName').textContent = user.name;
+
+        let heatmapChart = null;
+        let currentExamId = null;
+        let allBankQuestions = [];
+
+        async function loadDashboard() {
+            try {
+                const data = await api.request('/dashboard/faculty');
+
+                // Update stats cards
+                document.getElementById('statActive').textContent = data.stats.activeExams;
+                document.getElementById('statStudents').textContent = data.stats.totalStudents;
+                document.getElementById('statRisk').textContent = data.stats.suspiciousCount;
+
+                // Render recent results table
+                const recentResultsBody = document.getElementById('recentResultsBody');
+                recentResultsBody.innerHTML = '';
+
+                if (!data.recentResults || data.recentResults.length === 0) {
+                    recentResultsBody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">No recent results</td></tr>';
+                } else {
+                    data.recentResults.forEach(result => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-slate-50/50 transition-colors';
+                        tr.innerHTML = `
+                            <td class="py-3 font-medium text-slate-700">${result.student_name || ''}</td>
+                            <td class="py-3 text-slate-600">${result.exam_title || ''}</td>
+                            <td class="py-3">
+                                <span class="text-sm font-medium">${result.score || 0}</span>
+                            </td>
+                            <td class="py-3">
+                                <span class="text-sm font-medium">${Math.round(result.ati_score || 100)}</span>
+                            </td>
+                            <td class="py-3">
+                                <span class="badge badge-${result.risk_level || 'low'}">${(result.risk_level || 'low').toUpperCase()}</span>
+                            </td>
+                            <td class="py-3">
+                                <span class="badge ${result.status === 'submitted' ? 'badge-active' : 'badge-draft'}">${(result.status || 'unknown').toUpperCase()}</span>
+                            </td>
+                            <td class="py-3">
+                                <button onclick="viewResult(${result.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium">View</button>
+                            </td>
+                        `;
+                        recentResultsBody.appendChild(tr);
+                    });
+                }
+
+                // Render exams list
+                const tableBody = document.getElementById('examTableBody');
+                const heatmapSelect = document.getElementById('heatmapExamSelect');
+
+                tableBody.innerHTML = '';
+                heatmapSelect.innerHTML = '<option value="">Select Exam</option>' +
+                    data.examsList.map(e => `<option value="${e.id}">${e.title}</option>`).join('');
+
+                for (const exam of data.examsList) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-slate-50/50 transition-colors';
+                    tr.innerHTML = `
+                        <td class="py-4 font-bold text-slate-700">${exam.title}</td>
+                        <td class="py-4">
+                            <span class="badge ${exam.status === 'active' ? 'badge-active' : 'badge-draft'}">${(exam.status || 'draft').toUpperCase()}</span>
+                        </td>
+                        <td class="py-4 text-sm text-slate-500">${exam.duration_minutes} Mins</td>
+                        <td class="py-4 text-sm text-slate-500">${exam.student_count || 0} Students</td>
+                        <td class="py-4">
+                            <div class="flex gap-2">
+                                ${getExamActionButtons(exam)}
+                                <button onclick="openAddQuestionsModal(${exam.id})" class="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-lg hover:bg-blue-200" title="Add Questions">
+                                    <span class="material-symbols-outlined text-sm">quiz</span> Questions
+                                </button>
+                                <button onclick="window.location.href='/faculty-monitor.html?id=${exam.id}'" class="p-2 text-[#135bec] hover:bg-blue-50 rounded-lg" title="Monitor">
+                                    <span class="material-symbols-outlined text-sm">visibility</span>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    tableBody.appendChild(tr);
+                }
+
+                // Initialize charts
+                renderMarksChart(data.performanceData);
+                renderRiskChart(data.riskDistribution);
+
+                // Setup heatmap
+                if (data.examsList.length > 0) {
+                    heatmapSelect.value = data.examsList[0].id;
+                    updateHeatmap(data.examsList[0].id);
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function renderMarksChart(performanceData) {
+            const ctx = document.getElementById('marksChart');
+            if (!ctx) return;
+            if (window.marksChart && typeof window.marksChart.destroy === 'function') {
+                window.marksChart.destroy();
+                window.marksChart = null;
+            }
+
+            if (!performanceData || performanceData.length === 0) {
+                return;
+            }
+
+            window.marksChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: performanceData.map(d => (d.title || '').substring(0, 15)),
+                    datasets: [{
+                        label: 'Average Score',
+                        data: performanceData.map(d => Math.round(d.avg_score || 0)),
+                        backgroundColor: '#135bec',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, max: 100 } }
+                }
+            });
+        }
+
+        function renderRiskChart(riskData) {
+            const ctx = document.getElementById('performanceChart');
+            if (!ctx) return;
+            if (window.riskChart && typeof window.riskChart.destroy === 'function') {
+                window.riskChart.destroy();
+                window.riskChart = null;
+            }
+
+            const data = { low: 0, medium: 0, high: 0 };
+            if (riskData) riskData.forEach(r => { if (r.risk_level) data[r.risk_level] = r.count; });
+
+            window.riskChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Low Risk', 'Medium Risk', 'High Risk'],
+                    datasets: [{
+                        data: [data.low, data.medium, data.high],
+                        backgroundColor: ['#10b981', '#f59e0b', '#ef4444']
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        function viewResult(attemptId) {
+            window.location.href = `/result.html?id=${attemptId}`;
+        }
+
+        async function updateHeatmap(examId) {
+            if (!examId) return;
+            try {
+                const data = await api.exams.getHeatmap(examId);
+                const labels = [...new Set(data.map(d => `${d.time_bucket_minutes}m`))].sort((a, b) => parseInt(a) - parseInt(b));
+
+                const datasets = {};
+                const types = [...new Set(data.map(d => d.violation_type))];
+                const colors = {
+                    'tab_switch': '#135bec',
+                    'face_not_detected': '#ef4444',
+                    'voice_detected': '#f59e0b',
+                    'object_detected': '#8b5cf6',
+                    'gaze_violation': '#f97316',
+                    'multiple_faces': '#e11d48',
+                    'fullscreen_exit': '#06b6d4',
+                    'copy_paste_attempt': '#84cc16',
+                    'window_blur': '#6366f1'
+                };
+
+                types.forEach(type => {
+                    datasets[type] = {
+                        label: (type || '').replace(/_/g, ' ').toUpperCase(),
+                        data: labels.map(l => {
+                            const bucket = parseInt(l);
+                            const found = data.find(d => d.violation_type === type && d.time_bucket_minutes === bucket);
+                            return found ? found.total_count : 0;
+                        }),
+                        backgroundColor: colors[type] || '#64748b',
+                        borderColor: colors[type] || '#64748b',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    };
+                });
+
+                const ctxEl = document.getElementById('violationHeatmap');
+                if (heatmapChart) heatmapChart.destroy();
+
+                heatmapChart = new Chart(ctxEl, {
+                    type: 'bar',
+                    data: { labels, datasets: Object.values(datasets) },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'Violation Count' }, grid: { display: false } },
+                            x: { title: { display: true, text: 'Time (minutes)' }, grid: { display: false } }
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error('Failed to update heatmap', err);
+            }
+        }
+
+        // Create Exam
+        async function handleCreateExam(event) {
+            event.preventDefault();
+            const data = {
+                title: document.getElementById('examTitle').value,
+                duration_minutes: parseInt(document.getElementById('examDuration').value),
+                total_marks: parseInt(document.getElementById('examMarks').value),
+                instructions: document.getElementById('examInstructions').value
+            };
+
+            try {
+                const result = await api.exams.create(data);
+                showToast('Exam created successfully!');
+                closeCreateModal();
+                openAddQuestionsModal(result.id);
+                loadDashboard();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function openCreateModal() {
+            document.getElementById('createModal').classList.remove('hidden');
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.add('hidden');
+            document.getElementById('examTitle').value = '';
+            document.getElementById('examDuration').value = '';
+            document.getElementById('examMarks').value = '';
+            document.getElementById('examInstructions').value = '';
+        }
+
+        // Exam Status
+        async function updateExamStatus(examId, status) {
+            try {
+                const res = await fetch(`/api/exams/${examId}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token'),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ status })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    showToast(err.error || 'Failed to update exam', 'error');
+                    return;
+                }
+
+                const messages = {
+                    'active': 'Exam started successfully',
+                    'paused': 'Exam paused - all student timers frozen',
+                    'ended': 'Exam ended - all attempts submitted',
+                    'draft': 'Exam moved to draft'
+                };
+
+                showToast(messages[status] || 'Exam updated');
+                loadDashboard();
+            } catch (err) {
+                showToast('Network error: ' + err.message, 'error');
+            }
+        }
+
+        function getExamActionButtons(exam) {
+            switch (exam.status) {
+                case 'draft':
+                    return `
+                        <button onclick="updateExamStatus(${exam.id}, 'active')" class="px-3 py-1 bg-green-500 text-white text-xs rounded-lg hover:bg-green-600" title="Start Exam">
+                            <span class="material-symbols-outlined text-sm">play_arrow</span> Start
+                        </button>
+                    `;
+                case 'active':
+                    return `
+                        <button onclick="updateExamStatus(${exam.id}, 'paused')" class="px-3 py-1 bg-yellow-500 text-white text-xs rounded-lg hover:bg-yellow-600" title="Pause Exam">
+                            <span class="material-symbols-outlined text-sm">pause</span> Pause
+                        </button>
+                        <button onclick="if(confirm('End exam for all students?')) updateExamStatus(${exam.id}, 'ended')" class="px-3 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600" title="End Exam">
+                            <span class="material-symbols-outlined text-sm">stop</span> End
+                        </button>
+                    `;
+                case 'paused':
+                    return `
+                        <button onclick="updateExamStatus(${exam.id}, 'active')" class="px-3 py-1 bg-green-500 text-white text-xs rounded-lg hover:bg-green-600" title="Resume Exam">
+                            <span class="material-symbols-outlined text-sm">play_arrow</span> Resume
+                        </button>
+                        <button onclick="if(confirm('End exam for all students?')) updateExamStatus(${exam.id}, 'ended')" class="px-3 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600" title="End Exam">
+                            <span class="material-symbols-outlined text-sm">stop</span> End
+                        </button>
+                    `;
+                case 'ended':
+                    return `<span class="text-xs text-slate-400 font-bold">Ended</span>`;
+                default:
+                    return '';
+            }
+        }
+
+        // Add Questions Modal
+        async function openAddQuestionsModal(examId) {
+            currentExamId = examId;
+            try {
+                const res = await fetch('/api/question-bank', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                allBankQuestions = await res.json();
+                if (!Array.isArray(allBankQuestions)) allBankQuestions = [];
+                renderQuestionBankList(allBankQuestions);
+                populateTopicFilter(allBankQuestions);
+            } catch (err) {
+                allBankQuestions = [];
+                renderQuestionBankList([]);
+            }
+            document.getElementById('addQuestionsModal').classList.remove('hidden');
+        }
+
+        function closeAddQuestionsModal() {
+            document.getElementById('addQuestionsModal').classList.add('hidden');
+            currentExamId = null;
+        }
+
+        function showTab(tabId) {
+            document.getElementById('bankTab').classList.toggle('hidden', tabId !== 'bankTab');
+            document.getElementById('newTab').classList.toggle('hidden', tabId !== 'newTab');
+            document.getElementById('bankTabBtn').className = tabId === 'bankTab' ? 'px-4 py-2 text-sm font-bold text-[#135bec] border-b-2 border-[#135bec]' : 'px-4 py-2 text-sm font-bold text-slate-400';
+            document.getElementById('newTabBtn').className = tabId === 'newTab' ? 'px-4 py-2 text-sm font-bold text-[#135bec] border-b-2 border-[#135bec]' : 'px-4 py-2 text-sm font-bold text-slate-400';
+        }
+
+        function renderQuestionBankList(questions) {
+            const list = document.getElementById('questionBankList');
+            if (!questions || questions.length === 0) {
+                list.innerHTML = '<p class="text-center text-slate-400 py-4">No questions in bank</p>';
+                return;
+            }
+            list.innerHTML = questions.map(q => `
+                <label class="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 hover:border-[#135bec] cursor-pointer">
+                    <input type="checkbox" class="question-checkbox mt-1" value="${q.id}">
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-slate-800">${q.question_text}</p>
+                        <div class="flex gap-2 mt-1">
+                            <span class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">${q.topic || 'General'}</span>
+                            <span class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">${(q.difficulty || 'easy').toUpperCase()}</span>
+                        </div>
+                    </div>
+                </label>
+            `).join('');
+        }
+
+        function populateTopicFilter(questions) {
+            const topics = [...new Set(questions.map(q => q.topic).filter(Boolean))];
+            const select = document.getElementById('topicFilter');
+            select.innerHTML = '<option value="">All Topics</option>' + topics.map(t => `<option value="${t}">${t}</option>`).join('');
+        }
+
+        function filterQuestions() {
+            const search = (document.getElementById('questionSearch').value || '').toLowerCase();
+            const topic = document.getElementById('topicFilter').value;
+            const diff = document.getElementById('difficultyFilter').value;
+
+            const filtered = allBankQuestions.filter(q => {
+                if (search && !(q.question_text || '').toLowerCase().includes(search)) return false;
+                if (topic && q.topic !== topic) return false;
+                if (diff && q.difficulty !== diff) return false;
+                return true;
+            });
+            renderQuestionBankList(filtered);
+        }
+
+        async function addSelectedQuestions() {
+            const checked = document.querySelectorAll('.question-checkbox:checked');
+            if (checked.length === 0) {
+                showToast('No questions selected', 'warning');
+                return;
+            }
+            let addedCount = 0;
+            for (const cb of checked) {
+                try {
+                    const res = await fetch(`/api/exams/${currentExamId}/questions`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + token,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ question_bank_id: parseInt(cb.value), marks: 1 })
+                    });
+                    if (res.ok) addedCount++;
+                    else {
+                        const err = await res.json().catch(() => ({}));
+                        console.error('Failed to add question:', err.error || res.statusText);
+                    }
+                } catch (err) {
+                    console.error('Failed to add question:', err);
+                }
+            }
+            showToast(`${addedCount} of ${checked.length} questions added`);
+            closeAddQuestionsModal();
+            loadDashboard();
+        }
+
+        async function saveNewQuestion() {
+            const body = {
+                question_text: document.getElementById('newQuestionText').value,
+                option_a: document.getElementById('optionA').value,
+                option_b: document.getElementById('optionB').value,
+                option_c: document.getElementById('optionC').value,
+                option_d: document.getElementById('optionD').value,
+                correct_answer: document.getElementById('correctAnswer').value,
+                topic: document.getElementById('questionTopic').value,
+                difficulty: document.getElementById('questionDifficulty').value,
+                marks: parseInt(document.getElementById('questionMarks').value) || 1
+            };
+
+            if (!body.question_text || !body.option_a || !body.option_b) {
+                showToast('Please fill in at least the question and options A/B', 'error');
+                return;
+            }
+
+            try {
+                await fetch(`/api/exams/${currentExamId}/questions`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+                showToast('Question added to exam');
+                document.getElementById('newQuestionText').value = '';
+                document.getElementById('optionA').value = '';
+                document.getElementById('optionB').value = '';
+                document.getElementById('optionC').value = '';
+                document.getElementById('optionD').value = '';
+                document.getElementById('correctAnswer').value = 'A';
+                document.getElementById('questionTopic').value = '';
+                document.getElementById('questionMarks').value = '1';
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = '/index.html';
+        }
+
+        function showToast(msg, type = 'info') {
+            const colors = { success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: '#1e293b' };
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.backgroundColor = colors[type] || colors.info;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4000);
+        }
+
+        document.getElementById('heatmapExamSelect').addEventListener('change', (e) => {
+            if (e.target.value) updateHeatmap(e.target.value);
+        });
+
+        window.onload = loadDashboard;
+    </script>
+</body>
+</html>

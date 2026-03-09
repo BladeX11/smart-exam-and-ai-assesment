@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Question Bank - SmartAssess AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <style>
+        body { font-family: 'Lexend', sans-serif; background-color: #f6f6f8; }
+        .card { background: white; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1.5rem; }
+        .primary-btn { background-color: #135bec; color: white; border-radius: 0.75rem; font-weight: 700; padding: 0.75rem 1.5rem; }
+        .secondary-btn { border: 1px solid #e2e8f0; border-radius: 0.75rem; font-weight: 600; padding: 0.75rem 1.5rem; }
+        .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.75rem; color: #64748b; font-weight: 500; transition: all 0.2s; }
+        .sidebar-link:hover { background-color: #f8fafc; color: #135bec; }
+        .sidebar-link.active { background-color: #eff6ff; color: #135bec; }
+        .badge { border-radius: 9999px; padding: 0.125rem 0.5rem; font-size: 0.65rem; font-weight: 700; }
+        .badge-easy { background-color: #dcfce7; color: #15803d; }
+        .badge-medium { background-color: #fef3c7; color: #b45309; }
+        .badge-hard { background-color: #fee2e2; color: #b91c1c; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-right border-slate-200 p-6 flex flex-col">
+        <div class="flex items-center gap-2 mb-10">
+            <span class="material-symbols-outlined text-3xl text-[#135bec]">shield_person</span>
+            <span class="text-xl font-bold text-slate-800">SmartAssess AI</span>
+        </div>
+
+        <nav class="space-y-2 flex-1">
+            <a href="/faculty-dashboard.html" class="sidebar-link">
+                <span class="material-symbols-outlined">dashboard</span> Dashboard
+            </a>
+            <a href="/faculty-question-bank.html" class="sidebar-link active">
+                <span class="material-symbols-outlined">database</span> Question Bank
+            </a>
+            <a href="/student-risk-profiles.html" class="sidebar-link">
+                <span class="material-symbols-outlined">group</span> Student Risk
+            </a>
+            <a href="/faculty-messages.html" class="sidebar-link">
+                <span class="material-symbols-outlined">mail</span> Messages
+            </a>
+        </nav>
+
+        <div class="mt-auto pt-6 border-t border-slate-100">
+            <button onclick="handleLogout()" class="sidebar-link w-full text-red-500 hover:bg-red-50">
+                <span class="material-symbols-outlined">logout</span> Logout
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-8 overflow-y-auto">
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">Question Bank</h1>
+                <p class="text-sm text-slate-500">Manage your repository of exam questions.</p>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="openImportModal()" class="secondary-btn flex items-center gap-2">
+                    <span class="material-symbols-outlined">upload</span> Bulk Import
+                </button>
+                <button onclick="openCreateModal()" class="primary-btn flex items-center gap-2">
+                    <span class="material-symbols-outlined">add</span> New Question
+                </button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Filters Sidebar -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="card">
+                    <h4 class="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">Filters</h4>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Topic</label>
+                            <select class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                                <option>All Topics</option>
+                                <option>Networking</option>
+                                <option>Operating Systems</option>
+                                <option>DBMS</option>
+                                <option>Algorithms</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Difficulty</label>
+                            <div class="space-y-2">
+                                <label class="flex items-center gap-2 text-sm text-slate-600">
+                                    <input type="checkbox" class="rounded border-slate-300"> Easy
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-600">
+                                    <input type="checkbox" class="rounded border-slate-300"> Medium
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-600">
+                                    <input type="checkbox" class="rounded border-slate-300"> Hard
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h4 class="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">Bank Stats</h4>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-slate-500">Total Questions</span>
+                            <span id="statTotal" class="text-sm font-bold text-slate-800">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-slate-500">Most Used Topic</span>
+                            <span class="text-sm font-bold text-[#135bec]">Networking</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Question List -->
+            <div class="lg:col-span-3 space-y-6">
+                <div class="flex gap-4 mb-6">
+                    <div class="flex-1 relative">
+                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                        <input type="text" placeholder="Search questions, tags, or topics..." class="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-[#135bec]">
+                    </div>
+                </div>
+
+                <div id="questionList" class="space-y-4">
+                    <!-- Questions will be loaded here -->
+                    <div class="py-20 text-center text-slate-400">
+                        <div class="animate-spin inline-block w-8 h-8 border-4 border-[#135bec] border-t-transparent rounded-full mb-4"></div>
+                        <p>Loading question bank...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Create Question Modal -->
+    <div id="createModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <h3 id="modalTitle" class="text-2xl font-bold text-slate-800 mb-6">Add New Question</h3>
+            <form onsubmit="handleCreateQuestion(event)" class="space-y-6">
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Question Text</label>
+                        <textarea id="qText" rows="3" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" required></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Topic</label>
+                        <input type="text" id="qTopic" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Difficulty</label>
+                        <select id="qDifficulty" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
+                            <option value="easy">Easy</option>
+                            <option value="medium">Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Option A</label>
+                        <input type="text" id="optA" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Option B</label>
+                        <input type="text" id="optB" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Option C</label>
+                        <input type="text" id="optC" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Option D</label>
+                        <input type="text" id="optD" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" required>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">Correct Answer</label>
+                    <select id="qCorrect" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
+                        <option value="A">Option A</option>
+                        <option value="B">Option B</option>
+                        <option value="C">Option C</option>
+                        <option value="D">Option D</option>
+                    </select>
+                </div>
+                <div class="flex gap-4 pt-4">
+                    <button type="button" onclick="closeCreateModal()" class="flex-1 secondary-btn">Cancel</button>
+                    <button id="modalSubmitBtn" type="submit" class="flex-1 primary-btn">Save Question</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div id="importModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-4xl w-full p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <h3 class="text-2xl font-bold text-slate-800 mb-6">Bulk Import Questions</h3>
+            
+            <div class="mb-6 p-4 bg-blue-50 rounded-xl">
+                <p class="text-sm font-medium text-blue-800 mb-2">CSV Format Required:</p>
+                <code class="text-xs bg-blue-100 p-2 rounded block">
+                    question_text,option_a,option_b,option_c,option_d,correct_answer,topic,difficulty,marks
+                </code>
+                <p class="text-xs text-blue-600 mt-2">
+                    Example: "What is 2+2?","3","4","5","6","A","Mathematics","easy","1"
+                </p>
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-slate-600 mb-2">Select CSV File</label>
+                <input type="file" id="csvFile" accept=".csv" onchange="handleFileSelect(event)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
+            </div>
+
+            <div id="importPreview" class="mb-6 hidden">
+                <h4 class="text-sm font-bold text-slate-800 mb-4">Preview (First 5 questions)</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-50">
+                            <tr>
+                                <th class="p-2 border">Question</th>
+                                <th class="p-2 border">Option A</th>
+                                <th class="p-2 border">Option B</th>
+                                <th class="p-2 border">Option C</th>
+                                <th class="p-2 border">Option D</th>
+                                <th class="p-2 border">Correct</th>
+                                <th class="p-2 border">Topic</th>
+                                <th class="p-2 border">Difficulty</th>
+                                <th class="p-2 border">Marks</th>
+                            </tr>
+                        </thead>
+                        <tbody id="previewTableBody" class="divide-y">
+                            <!-- Preview rows will be added here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="flex gap-4">
+                <button onclick="closeImportModal()" class="flex-1 secondary-btn">Cancel</button>
+                <button onclick="confirmImport()" id="confirmImportBtn" class="flex-1 primary-btn" disabled>Confirm Import</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-6 right-6 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-2xl z-[300]"></div>
+
+    <script src="/js/api.js"></script>
+    <script>
+        const user = JSON.parse(localStorage.getItem('user'));
+        if (!user || user.role !== 'faculty') window.location.href = '/index.html';
+
+        let editingQuestionId = null;
+        let parsedQuestions = [];
+
+        async function loadQuestions() {
+            try {
+                const questions = await api.questionBank.getAll();
+                const list = document.getElementById('questionList');
+                list.innerHTML = '';
+                document.getElementById('statTotal').textContent = questions.length;
+
+                if (questions.length === 0) {
+                    list.innerHTML = '<div class="py-20 text-center text-slate-400">No questions in the bank yet.</div>';
+                    return;
+                }
+
+                questions.forEach(q => {
+                    const card = document.createElement('div');
+                    card.className = 'card hover:border-[#135bec] transition-all cursor-pointer';
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex gap-2">
+                                <span class="badge badge-${q.difficulty}">${(q.difficulty || 'easy').toUpperCase()}</span>
+                                <span class="px-2 py-1 bg-blue-50 text-[#135bec] rounded-lg text-[10px] font-bold uppercase">${q.topic}</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="editQuestion(${q.id})" class="p-1 text-slate-400 hover:text-[#135bec]"><span class="material-symbols-outlined text-sm">edit</span></button>
+                                <button onclick="deleteQuestion(${q.id})" class="p-1 text-slate-400 hover:text-red-500"><span class="material-symbols-outlined text-sm">delete</span></button>
+                            </div>
+                        </div>
+                        <p class="text-sm font-bold text-slate-800 mb-4">${q.question_text}</p>
+                        <div class="grid grid-cols-2 gap-x-8 gap-y-2">
+                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'A' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">A</span> ${q.option_a}
+                            </div>
+                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'B' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">B</span> ${q.option_b}
+                            </div>
+                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'C' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">C</span> ${q.option_c}
+                            </div>
+                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'D' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">D</span> ${q.option_d}
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(card);
+                });
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function openCreateModal() { document.getElementById('createModal').classList.remove('hidden'); }
+        function closeCreateModal() { 
+            document.getElementById('createModal').classList.add('hidden'); 
+            resetModal();
+        }
+
+        function resetModal() {
+            editingQuestionId = null;
+            document.getElementById('modalTitle').textContent = 'Add New Question';
+            document.getElementById('modalSubmitBtn').textContent = 'Save Question';
+            document.getElementById('qText').value = '';
+            document.getElementById('qTopic').value = '';
+            document.getElementById('qDifficulty').value = 'easy';
+            document.getElementById('optA').value = '';
+            document.getElementById('optB').value = '';
+            document.getElementById('optC').value = '';
+            document.getElementById('optD').value = '';
+            document.getElementById('qCorrect').value = 'A';
+        }
+
+        async function editQuestion(id) {
+            try {
+                const questions = await api.questionBank.getAll();
+                const q = questions.find(x => x.id === id);
+                if (!q) return showToast('Question not found', 'error');
+                editingQuestionId = id;
+                document.getElementById('modalTitle').textContent = 'Edit Question';
+                document.getElementById('modalSubmitBtn').textContent = 'Update Question';
+                document.getElementById('qText').value = q.question_text || '';
+                document.getElementById('qTopic').value = q.topic || '';
+                document.getElementById('qDifficulty').value = q.difficulty || 'easy';
+                document.getElementById('optA').value = q.option_a || '';
+                document.getElementById('optB').value = q.option_b || '';
+                document.getElementById('optC').value = q.option_c || '';
+                document.getElementById('optD').value = q.option_d || '';
+                document.getElementById('qCorrect').value = q.correct_answer || 'A';
+                openCreateModal();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function deleteQuestion(id) {
+            if (!confirm('Delete this question from the bank?')) return;
+            try {
+                await api.questionBank.remove(id);
+                showToast('Question deleted');
+                loadQuestions();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function handleCreateQuestion(e) {
+            e.preventDefault();
+            const data = {
+                question_text: document.getElementById('qText').value,
+                topic: document.getElementById('qTopic').value,
+                difficulty: document.getElementById('qDifficulty').value,
+                option_a: document.getElementById('optA').value,
+                option_b: document.getElementById('optB').value,
+                option_c: document.getElementById('optC').value,
+                option_d: document.getElementById('optD').value,
+                correct_answer: document.getElementById('qCorrect').value,
+                question_type: 'mcq',
+                marks: 1
+            };
+            try {
+                if (editingQuestionId) {
+                    await api.questionBank.update(editingQuestionId, { ...data, change_note: 'Updated from UI' });
+                    showToast('Question updated!');
+                    closeCreateModal();
+                } else {
+                    await api.questionBank.create(data);
+                    showToast('Question added to bank!');
+                    closeCreateModal();
+                }
+                loadQuestions();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function openImportModal() {
+            document.getElementById('importModal').classList.remove('hidden');
+            document.getElementById('csvFile').value = '';
+            document.getElementById('importPreview').classList.add('hidden');
+            document.getElementById('confirmImportBtn').disabled = true;
+            parsedQuestions = [];
+        }
+
+        function closeImportModal() {
+            document.getElementById('importModal').classList.add('hidden');
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const questions = [];
+
+            // Skip header row if it exists
+            const startIndex = lines.length > 0 && lines[0].toLowerCase().includes('question') ? 1 : 0;
+
+            for (let i = startIndex; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                // Parse CSV handling quoted fields
+                const fields = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let ch of line) {
+                    if (ch === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (ch === ',' && !inQuotes) {
+                        fields.push(current.trim());
+                        current = '';
+                    } else {
+                        current += ch;
+                    }
+                }
+                fields.push(current.trim());
+
+                if (fields.length >= 8) {
+                    questions.push({
+                        question_text: fields[0],
+                        option_a: fields[1],
+                        option_b: fields[2],
+                        option_c: fields[3],
+                        option_d: fields[4],
+                        correct_answer: (fields[5] || '').toUpperCase(),
+                        topic: fields[6] || 'General',
+                        difficulty: (fields[7] || 'medium').toLowerCase(),
+                        marks: parseInt(fields[8]) || 1
+                    });
+                }
+            }
+
+            return questions;
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.endsWith('.csv')) {
+                showToast('Please select a CSV file', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    parsedQuestions = parseCSV(e.target.result);
+
+                    if (parsedQuestions.length === 0) {
+                        showToast('No valid questions found in CSV', 'error');
+                        return;
+                    }
+
+                    showPreview(parsedQuestions);
+                    showToast(`Parsed ${parsedQuestions.length} questions from CSV`, 'success');
+                } catch (error) {
+                    console.error('Error parsing CSV:', error);
+                    showToast('Error parsing CSV file: ' + error.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function showPreview(questions) {
+            const previewDiv = document.getElementById('importPreview');
+            const tbody = document.getElementById('previewTableBody');
+
+            if (!questions || questions.length === 0) {
+                previewDiv.classList.add('hidden');
+                return;
+            }
+
+            tbody.innerHTML = '';
+            const previewCount = Math.min(5, questions.length);
+
+            for (let i = 0; i < previewCount; i++) {
+                const q = questions[i];
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="p-2 border max-w-xs truncate">${(q.question_text || '').substring(0, 50)}...</td>
+                    <td class="p-2 border">${q.option_a || ''}</td>
+                    <td class="p-2 border">${q.option_b || ''}</td>
+                    <td class="p-2 border">${q.option_c || ''}</td>
+                    <td class="p-2 border">${q.option_d || ''}</td>
+                    <td class="p-2 border font-bold">${q.correct_answer || ''}</td>
+                    <td class="p-2 border">${q.topic || ''}</td>
+                    <td class="p-2 border">${q.difficulty || ''}</td>
+                    <td class="p-2 border">${q.marks || 1}</td>
+                `;
+                tbody.appendChild(row);
+            }
+
+            if (questions.length > 5) {
+                const moreRow = document.createElement('tr');
+                moreRow.innerHTML = `<td colspan="9" class="p-2 text-center text-slate-400">...and ${questions.length - 5} more questions</td>`;
+                tbody.appendChild(moreRow);
+            }
+
+            previewDiv.classList.remove('hidden');
+            document.getElementById('confirmImportBtn').disabled = false;
+        }
+
+        async function confirmImport() {
+            if (parsedQuestions.length === 0) {
+                showToast('No questions to import', 'error');
+                return;
+            }
+
+            const confirmBtn = document.getElementById('confirmImportBtn');
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Importing...';
+
+            try {
+                const result = await api.questionBank.bulkImport(parsedQuestions);
+
+                if (result.errors && result.errors.length > 0) {
+                    showToast(`Imported ${result.imported} questions with ${result.errors.length} errors`, 'warning');
+                    console.error('Import errors:', result.errors);
+                } else {
+                    showToast(`Successfully imported ${result.imported} questions!`, 'success');
+                }
+
+                closeImportModal();
+                loadQuestions();
+            } catch (error) {
+                console.error('Import error:', error);
+                showToast('Import failed: ' + error.message, 'error');
+            } finally {
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = 'Confirm Import';
+            }
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = '/index.html';
+        }
+
+        function showToast(msg, type = 'info') {
+            const colors = { success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: '#1e293b' };
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.backgroundColor = colors[type] || colors.info;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4000);
+        }
+
+        window.onload = loadQuestions;
+    </script>
+</body>
+</html>
