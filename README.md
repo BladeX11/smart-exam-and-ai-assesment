@@ -232,21 +232,7 @@ Login
 
 ---
 
-## 🔗 Tool Integration (Part D)
 
-```
-Figma  (UI Design & Prototype)
-  ↓
-Jira   (Sprint Planning & Task Tracking)
-  ↓
-GitHub (Code Execution & Version Control)
-```
-
-- User stories in Jira match screens in the Figma prototype
-- GitHub commits reference Jira task IDs
-- Prototype features align with project requirements
-
----
 
 ## 🤝 Contributing
 
