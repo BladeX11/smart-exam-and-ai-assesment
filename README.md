@@ -225,41 +225,10 @@ Login
 
 ---
 
-## 📋 Project Management
 
-This project follows **Agile methodology** tracked via **Jira**.
-
-### Jira Board
-- **Epics:** Authentication, Exam Module, AI Integration, Proctoring, Reports
-- **Sprint:** 2-week sprints with story point estimation
-- **Status flow:** `To Do → In Progress → Done`
-- **Metrics tracked:** Burndown chart, Velocity chart, Sprint progress
-
-> 🔗 Jira Project Link: *(Paste your Jira board link here)*
-
-### GitHub Workflow
-- `main` — stable production branch
-- `dev` — active development branch
-- Feature branches per Jira task: `feature/login-module`, `feature/ai-question-gen`
-- Commits reference Jira task IDs: `feat: add AI question generator [EXAM-12]`
 
 ---
 
-## 🎨 Prototype & Design
-
-The full UI/UX prototype was designed in **Figma** with:
-- Interactive clickable screens
-- Consistent design tokens (color, typography, spacing)
-- Mobile-first layout
-- Role-based navigation flows
-
-> 🔗 Figma Prototype Link: *(Paste your Figma prototype link here)*
-
-**Design Highlights:**
-- Primary color: `#2563EB` (Blue)
-- Font: Inter
-- Clean, minimal UI optimized for exam focus
-- High-contrast, distraction-free exam interface
 
 ---
 
