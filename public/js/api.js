@@ -54,6 +54,7 @@ const api = {
     getAll: () => api.request('/exams'),
     getDetails: (id) => api.request(`/exams/${id}`),
     getAttempts: (id) => api.request(`/exams/${id}/attempts`),
+    getActivity: (id, limit = 100) => api.request(`/exams/${id}/activity?limit=${limit}`),
     getHeatmap: (id) => api.request(`/exams/${id}/heatmap`),
     create: (examData) => api.request('/exams', { method: 'POST', body: JSON.stringify(examData) }),
     updateStatus: (id, status) => api.request(`/exams/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) })
@@ -65,6 +66,11 @@ const api = {
     updateTimer: (id, timeRemaining) => api.request(`/attempts/${id}/timer`, { method: 'PUT', body: JSON.stringify({ time_remaining: timeRemaining }) }),
     updateStatus: (id, data) => api.request(`/attempts/${id}/status`, { method: 'PUT', body: JSON.stringify(data) }),
     logActivity: (id, activity) => api.request(`/attempts/${id}/activity`, { method: 'POST', body: JSON.stringify(activity) }),
+    getActivity: (id) => api.request(`/attempts/${id}/activity`),
+    startRecording: (id, data) => api.request(`/attempts/${id}/recordings/start`, { method: 'POST', body: JSON.stringify(data) }),
+    uploadRecordingChunk: (id, data) => api.request(`/attempts/${id}/recordings/chunk`, { method: 'POST', body: JSON.stringify(data) }),
+    stopRecording: (id, data) => api.request(`/attempts/${id}/recordings/stop`, { method: 'POST', body: JSON.stringify(data) }),
+    getRecordings: (id) => api.request(`/attempts/${id}/recordings`),
     submit: (id, data) => api.request(`/attempts/${id}/submit`, { method: 'POST', body: data ? JSON.stringify(data) : undefined }),
     getStatus: (id) => api.request(`/attempts/${id}/status`)
   },
@@ -96,6 +102,7 @@ const api = {
 
   riskProfiles: {
     getAll: () => api.request('/risk-profiles'),
+    getHistory: (studentId) => api.request(`/risk-profiles/${studentId}/history`),
     updateNotes: (id, notes) => api.request(`/risk-profiles/${id}/notes`, { method: 'PUT', body: JSON.stringify({ faculty_notes: notes }) })
   }
 };

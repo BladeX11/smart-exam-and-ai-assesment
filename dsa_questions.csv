@@ -1,0 +1,11 @@
+question_text,option_a,option_b,option_c,option_d,correct_answer,topic,difficulty,marks
+What is the time complexity of Binary Search?,O(n),O(log n),O(n log n),O(1),B,Searching,easy,1
+Which data structure follows FIFO principle?,Stack,Queue,Tree,Graph,B,Queue,easy,1
+Which data structure follows LIFO principle?,Queue,Array,Stack,Linked List,C,Stack,easy,1
+Which sorting algorithm has the best average case complexity?,Bubble Sort,Selection Sort,Merge Sort,Insertion Sort,C,Sorting,medium,2
+What is the worst-case time complexity of Quick Sort?,O(n^2),O(log n),O(n log n),O(n),A,Sorting,medium,2
+Which traversal method uses recursion commonly in trees?,BFS,DFS,Binary Search,Hashing,B,Tree,easy,1
+Which data structure is used for recursion?,Queue,Stack,Array,Linked List,B,Stack,easy,1
+Which graph traversal algorithm uses a queue?,DFS,Prim,BFS,Dijkstra,C,Graph,medium,2
+What is the root node in a tree?,Leaf node,Starting node,Last node,Middle node,B,Tree,easy,1
+Which sorting algorithm repeatedly swaps adjacent elements?,Merge Sort,Heap Sort,Bubble Sort,Quick Sort,C,Sorting,easy,1

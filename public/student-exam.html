@@ -79,7 +79,21 @@
                         <span class="text-[10px] text-slate-600">Object Detection</span>
                         <div id="objectStatus" class="status-dot dot-green"></div>
                     </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] text-slate-600">Webcam Recording</span>
+                        <div id="webcamRecordingStatus" class="status-dot dot-amber"></div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] text-slate-600">Screen Recording</span>
+                        <div id="screenRecordingStatus" class="status-dot dot-amber"></div>
+                    </div>
                 </div>
+                <button onclick="retryProctoringAccess()" class="mt-3 w-full text-xs font-bold text-[#135bec] border border-blue-100 bg-blue-50 rounded-lg px-3 py-2 hover:bg-blue-100">
+                    Retry Camera & Mic Access
+                </button>
+                <button onclick="startScreenCaptureFlow(true)" class="mt-2 w-full text-xs font-bold text-[#135bec] border border-blue-100 bg-white rounded-lg px-3 py-2 hover:bg-blue-50">
+                    Start Screen Recording
+                </button>
             </div>
         </div>
     </aside>
@@ -188,7 +202,8 @@
     <div id="disconnectOverlay" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md hidden z-[200] flex flex-col items-center justify-center text-white p-8 text-center">
         <span class="material-symbols-outlined text-6xl text-red-500 mb-4 animate-pulse">wifi_off</span>
         <h2 class="text-3xl font-bold mb-2">Connection Lost</h2>
-        <p class="text-slate-400 max-w-md">Your internet connection was interrupted. The exam timer has been frozen. Please do not refresh the page. We will automatically resume once you are back online.</p>
+        <p id="disconnectMessage" class="text-slate-400 max-w-md">Your internet connection was interrupted. The exam timer has been frozen. Please do not refresh the page. We will automatically resume once you are back online.</p>
+        <p id="disconnectGrace" class="mt-4 text-sm font-bold text-amber-300">Reconnect grace remaining: 02:00</p>
     </div>
 
     <!-- Paused by Faculty Overlay -->
@@ -220,7 +235,15 @@
         let currentQuestionIndex = 0;
         let currentSectionId = null;
         let sectionQuestionIndexes = [];
+        let longAnswerAutosaveTimeout = null;
+        let proctoringStream = null;
+        let screenCaptureStream = null;
+        let recordingSessions = {
+            webcam: { recorder: null, fileName: null, mimeType: null, active: false },
+            screen: { recorder: null, fileName: null, mimeType: null, active: false }
+        };
         let answers = {};
+        let longAnswers = {};
         let flaggedQuestions = new Set();
         let timeRemaining = 0;
         let timerInterval = null;
@@ -230,15 +253,131 @@
         let copyPasteCount = 0;
         let faceDetectionInterval = null;
         let objectDetectionInterval = null;
+        let voiceDetectionInterval = null;
+        let statusPollInterval = null;
         let audioContext = null;
         let audioAnalyser = null;
         let voiceViolationCount = 0;
         let faceViolationCount = 0;
+        let examPausedByFaculty = false;
+        let examFinalized = false;
+        let submittingExam = false;
+        let blurViolationCount = 0;
+        let lastFocusLossAt = 0;
+        let lastToastTimeout = null;
+        let disconnectMonitorInterval = null;
+        const DISCONNECT_GRACE_SECONDS = 120;
+        const LOCAL_RECOVERY_KEY = `attempt-recovery-${attemptId}`;
+
+        function setRecordingStatus(type, state = 'amber') {
+            const elementId = type === 'webcam' ? 'webcamRecordingStatus' : 'screenRecordingStatus';
+            const dot = document.getElementById(elementId);
+            if (!dot) return;
+            dot.className = `status-dot ${state === 'green' ? 'dot-green' : state === 'red' ? 'dot-red' : 'dot-amber'}`;
+        }
+
+        function getSupportedRecordingMimeType() {
+            const candidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+            return candidates.find((candidate) => window.MediaRecorder && MediaRecorder.isTypeSupported(candidate)) || '';
+        }
+
+        async function blobToBase64(blob) {
+            const buffer = await blob.arrayBuffer();
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const chunkSize = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+            }
+            return btoa(binary);
+        }
+
+        async function uploadRecordingBlob(type, blob) {
+            const session = recordingSessions[type];
+            if (!session?.active || !session.fileName || !blob || blob.size === 0) return;
+            try {
+                const chunkBase64 = await blobToBase64(blob);
+                await api.attempts.uploadRecordingChunk(attemptId, {
+                    file_name: session.fileName,
+                    chunk_base64: chunkBase64
+                });
+            } catch (error) {
+                console.error(`Failed to upload ${type} recording chunk`, error);
+            }
+        }
+
+        async function startMediaRecording(type, stream) {
+            if (!stream || !window.MediaRecorder || recordingSessions[type]?.active) return;
+
+            const mimeType = getSupportedRecordingMimeType();
+            const response = await api.attempts.startRecording(attemptId, {
+                recording_type: type,
+                mime_type: mimeType || 'video/webm'
+            });
+
+            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            recordingSessions[type] = {
+                recorder,
+                fileName: response.file_name,
+                mimeType: mimeType || 'video/webm',
+                active: true
+            };
+
+            recorder.ondataavailable = async (event) => {
+                if (event.data && event.data.size > 0) {
+                    await uploadRecordingBlob(type, event.data);
+                }
+            };
+
+            recorder.onerror = (event) => {
+                console.error(`${type} recording error`, event);
+                setRecordingStatus(type, 'red');
+            };
+
+            recorder.onstop = async () => {
+                try {
+                    await api.attempts.stopRecording(attemptId, { file_name: recordingSessions[type].fileName });
+                } catch (error) {
+                    console.error(`Failed to finalize ${type} recording`, error);
+                }
+                recordingSessions[type].active = false;
+                setRecordingStatus(type, 'amber');
+            };
+
+            recorder.start(5000);
+            setRecordingStatus(type, 'green');
+        }
+
+        async function stopMediaRecording(type) {
+            const session = recordingSessions[type];
+            if (!session?.recorder || session.recorder.state === 'inactive') {
+                recordingSessions[type].active = false;
+                return;
+            }
+            await new Promise((resolve) => {
+                session.recorder.addEventListener('stop', () => resolve(), { once: true });
+                session.recorder.stop();
+            });
+            recordingSessions[type].recorder = null;
+        }
+
+        async function stopAllRecordings() {
+            await Promise.allSettled([
+                stopMediaRecording('webcam'),
+                stopMediaRecording('screen')
+            ]);
+            if (screenCaptureStream) {
+                screenCaptureStream.getTracks().forEach(track => track.stop());
+                screenCaptureStream = null;
+            }
+        }
 
         function freezeTimer() {
-            if (timerFrozen) return;
+            if (timerFrozen || examFinalized) return;
             timerFrozen = true;
             offlineSinceMs = Date.now();
+            saveLocalRecoverySnapshot();
+            startDisconnectMonitor();
             document.getElementById('disconnectOverlay').classList.remove('hidden');
             showToast('Connection lost. Timer frozen.', 'error');
         }
@@ -246,6 +385,8 @@
         async function resumeTimer() {
             if (!timerFrozen) return;
             timerFrozen = false;
+            clearInterval(disconnectMonitorInterval);
+            disconnectMonitorInterval = null;
             document.getElementById('disconnectOverlay').classList.add('hidden');
             showToast('Connection restored. Timer resumed.', 'info');
 
@@ -255,7 +396,11 @@
             // Log after reconnect (only if exam is loaded)
             if (offlineSeconds > 0 && examData) {
                 try {
-                    await logViolation('internet_disconnect', `Internet disconnect (${offlineSeconds}s). Timer frozen.`, 'warning');
+                    const severity = offlineSeconds > DISCONNECT_GRACE_SECONDS ? 'warning' : 'info';
+                    const disconnectNote = offlineSeconds > DISCONNECT_GRACE_SECONDS
+                        ? `Internet disconnect lasted ${offlineSeconds}s. Grace window exceeded and the outage was marked for faculty review.`
+                        : `Internet disconnect lasted ${offlineSeconds}s. Reconnected within grace window.`;
+                    await logViolation('internet_disconnect', disconnectNote, severity);
                 } catch (_) {}
             }
 
@@ -276,9 +421,13 @@
                 if (attemptStatus.answers && typeof attemptStatus.answers === 'object') {
                     answers = attemptStatus.answers;
                 }
+                if (attemptStatus.long_answers && typeof attemptStatus.long_answers === 'object') {
+                    longAnswers = attemptStatus.long_answers;
+                }
                 if (Number.isFinite(attemptStatus.current_question_index)) {
                     currentQuestionIndex = attemptStatus.current_question_index;
                 }
+                restoreLocalRecoverySnapshot();
 
                 if (examData.sections && examData.sections.length > 0) {
                     currentSectionId = attemptStatus.current_section_id || examData.sections[0].id;
@@ -302,6 +451,90 @@
             }
         }
 
+        function startDisconnectMonitor() {
+            clearInterval(disconnectMonitorInterval);
+
+            const messageEl = document.getElementById('disconnectMessage');
+            const graceEl = document.getElementById('disconnectGrace');
+
+            const updateDisconnectState = () => {
+                if (!offlineSinceMs) return;
+                const offlineSeconds = Math.max(0, Math.round((Date.now() - offlineSinceMs) / 1000));
+                const remaining = Math.max(0, DISCONNECT_GRACE_SECONDS - offlineSeconds);
+                const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+                const ss = String(remaining % 60).padStart(2, '0');
+
+                if (offlineSeconds <= DISCONNECT_GRACE_SECONDS) {
+                    messageEl.textContent = 'Your timer is frozen and your latest answers are stored locally. Reconnect within the grace window to continue normally.';
+                    graceEl.textContent = `Reconnect grace remaining: ${mm}:${ss}`;
+                    graceEl.className = 'mt-4 text-sm font-bold text-amber-300';
+                } else {
+                    messageEl.textContent = 'The exam is still preserved and will resume after reconnect, but this longer outage will be marked for faculty review.';
+                    graceEl.textContent = `Grace window exceeded by ${formatSeconds(offlineSeconds - DISCONNECT_GRACE_SECONDS)}`;
+                    graceEl.className = 'mt-4 text-sm font-bold text-red-300';
+                }
+            };
+
+            updateDisconnectState();
+            disconnectMonitorInterval = setInterval(updateDisconnectState, 1000);
+        }
+
+        function saveLocalRecoverySnapshot() {
+            try {
+                localStorage.setItem(LOCAL_RECOVERY_KEY, JSON.stringify({
+                    answers,
+                    longAnswers,
+                    currentQuestionIndex,
+                    currentSectionId,
+                    timeRemaining,
+                    savedAt: Date.now()
+                }));
+            } catch (err) {
+                console.error('Failed to save local recovery snapshot', err);
+            }
+        }
+
+        function restoreLocalRecoverySnapshot() {
+            try {
+                const raw = localStorage.getItem(LOCAL_RECOVERY_KEY);
+                if (!raw) return;
+                const snapshot = JSON.parse(raw);
+                if (!snapshot || typeof snapshot !== 'object') return;
+
+                if (snapshot.answers && Object.keys(snapshot.answers).length >= Object.keys(answers || {}).length) {
+                    answers = snapshot.answers;
+                }
+                if (snapshot.longAnswers && Object.keys(snapshot.longAnswers).length >= Object.keys(longAnswers || {}).length) {
+                    longAnswers = snapshot.longAnswers;
+                }
+                if (Number.isFinite(snapshot.currentQuestionIndex)) {
+                    currentQuestionIndex = snapshot.currentQuestionIndex;
+                }
+                if (snapshot.currentSectionId) {
+                    currentSectionId = snapshot.currentSectionId;
+                }
+                if (Number.isFinite(snapshot.timeRemaining) && snapshot.timeRemaining > 0 && (!timeRemaining || snapshot.timeRemaining < timeRemaining + 30)) {
+                    timeRemaining = snapshot.timeRemaining;
+                }
+            } catch (err) {
+                console.error('Failed to restore local recovery snapshot', err);
+            }
+        }
+
+        function clearLocalRecoverySnapshot() {
+            try {
+                localStorage.removeItem(LOCAL_RECOVERY_KEY);
+            } catch (err) {
+                console.error('Failed to clear local recovery snapshot', err);
+            }
+        }
+
+        function formatSeconds(totalSeconds) {
+            const mins = Math.floor(totalSeconds / 60);
+            const secs = totalSeconds % 60;
+            return `${mins}m ${secs}s`;
+        }
+
         function initFullscreen() {
             let fullscreenExitCount = 0;
             
@@ -321,6 +554,13 @@
             if (overlay && enterBtn) {
                 enterBtn.addEventListener('click', () => {
                     requestFullscreen();
+                    if (!proctoringStream || proctoringStream.getVideoTracks().length === 0) {
+                        retryProctoringAccess();
+                    }
+                    startScreenCaptureFlow(true);
+                    if (audioContext && audioContext.state === 'suspended') {
+                        audioContext.resume().catch(() => {});
+                    }
                     overlay.style.display = 'none';
                 });
             }
@@ -337,6 +577,7 @@
             
             // Handle fullscreen changes
             const handleFullscreenChange = () => {
+                if (examFinalized) return;
                 if (!document.fullscreenElement && !document.webkitFullscreenElement && 
                     !document.mozFullScreenElement && !document.msFullscreenElement) {
                     fullscreenExitCount++;
@@ -399,8 +640,16 @@
             const q = examData.questions[index];
             if (index === currentQuestionIndex) return 'btn-current';
             if (flaggedQuestions.has(index)) return 'btn-flagged';
-            if (answers[q.question_bank_id]) return 'btn-answered';
+            if (isQuestionAnswered(q)) return 'btn-answered';
             return 'btn-not-visited';
+        }
+
+        function isQuestionAnswered(question) {
+            if (!question) return false;
+            if (question.question_type === 'long_answer') {
+                return !!(longAnswers[question.question_bank_id] || '').trim();
+            }
+            return !!answers[question.question_bank_id];
         }
 
         function renderQuestion() {
@@ -421,27 +670,44 @@
             
             const optionsContainer = document.getElementById('optionsContainer');
             optionsContainer.innerHTML = '';
-            
-            const options = [
-                { id: 'A', text: q.option_a },
-                { id: 'B', text: q.option_b },
-                { id: 'C', text: q.option_c },
-                { id: 'D', text: q.option_d }
-            ];
 
-            options.forEach(opt => {
-                const div = document.createElement('div');
-                const isSelected = answers[q.question_bank_id] === opt.id;
-                div.className = `flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'border-[#135bec] bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`;
-                div.onclick = () => selectOption(opt.id);
-                div.innerHTML = `
-                    <div class="w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-[#135bec] bg-[#135bec]' : 'border-slate-300'}">
-                        ${isSelected ? '<span class="material-symbols-outlined text-white text-xs">done</span>' : ''}
+            if (q.question_type === 'long_answer') {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'space-y-3';
+                wrapper.innerHTML = `
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="px-3 py-1 bg-violet-50 text-violet-700 rounded-lg font-bold uppercase tracking-wide">Paragraph Answer</span>
+                        <span class="text-slate-500 font-medium">Write a detailed answer in your own words.</span>
                     </div>
-                    <span class="text-slate-700 font-medium">${opt.text}</span>
+                    <textarea id="longAnswerInput" rows="12" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 focus:outline-none focus:border-[#135bec]" placeholder="Type your answer here..."></textarea>
+                    <p class="text-xs text-slate-400">This answer is saved automatically while you type.</p>
                 `;
-                optionsContainer.appendChild(div);
-            });
+                optionsContainer.appendChild(wrapper);
+                const input = document.getElementById('longAnswerInput');
+                input.value = longAnswers[q.question_bank_id] || '';
+                input.addEventListener('input', handleLongAnswerInput);
+            } else {
+                const options = [
+                    { id: 'A', text: q.option_a },
+                    { id: 'B', text: q.option_b },
+                    { id: 'C', text: q.option_c },
+                    { id: 'D', text: q.option_d }
+                ];
+
+                options.forEach(opt => {
+                    const div = document.createElement('div');
+                    const isSelected = answers[q.question_bank_id] === opt.id;
+                    div.className = `flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'border-[#135bec] bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`;
+                    div.onclick = () => selectOption(opt.id);
+                    div.innerHTML = `
+                        <div class="w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-[#135bec] bg-[#135bec]' : 'border-slate-300'}">
+                            ${isSelected ? '<span class="material-symbols-outlined text-white text-xs">done</span>' : ''}
+                        </div>
+                        <span class="text-slate-700 font-medium">${opt.text}</span>
+                    `;
+                    optionsContainer.appendChild(div);
+                });
+            }
 
             document.getElementById('flagBtn').className = `p-2 transition-colors ${flaggedQuestions.has(currentQuestionIndex) ? 'text-amber-500' : 'text-slate-400'}`;
             renderQuestionPalette();
@@ -452,6 +718,16 @@
             answers[q.question_bank_id] = optionId;
             renderQuestion();
             autoSave();
+        }
+
+        function handleLongAnswerInput(event) {
+            const q = examData.questions[currentQuestionIndex];
+            longAnswers[q.question_bank_id] = event.target.value;
+            renderQuestionPalette();
+            clearTimeout(longAnswerAutosaveTimeout);
+            longAnswerAutosaveTimeout = setTimeout(() => {
+                autoSave();
+            }, 500);
         }
 
         function jumpToQuestion(localIndex) {
@@ -498,7 +774,11 @@
 
         function clearResponse() {
             const q = examData.questions[currentQuestionIndex];
-            delete answers[q.question_bank_id];
+            if (q.question_type === 'long_answer') {
+                delete longAnswers[q.question_bank_id];
+            } else {
+                delete answers[q.question_bank_id];
+            }
             renderQuestion();
             autoSave();
         }
@@ -512,9 +792,6 @@
             renderQuestion();
         }
 
-        let examPausedByFaculty = false;
-        let statusPollInterval = null;
-
         function startTimer() {
             updateTimerDisplay();
 
@@ -524,6 +801,7 @@
             }, 5000);
 
             timerInterval = setInterval(async () => {
+                if (examFinalized) return;
                 if (timerFrozen || examPausedByFaculty) return;
                 if (timeRemaining <= 0) {
                     clearInterval(timerInterval);
@@ -551,17 +829,19 @@
         }
 
         async function checkFacultyStatus() {
+            if (examFinalized) return;
             try {
                 const status = await api.attempts.getStatus(attemptId);
                 if (status.status === 'paused' && !examPausedByFaculty) {
                     examPausedByFaculty = true;
                     document.getElementById('pausedOverlay').classList.remove('hidden');
-                    showToast('⏸️ Exam paused by faculty', 'warning');
+                    showToast('Exam paused by faculty', 'warning');
                 } else if (status.status === 'in_progress' && examPausedByFaculty) {
                     examPausedByFaculty = false;
                     document.getElementById('pausedOverlay').classList.add('hidden');
-                    showToast('▶️ Exam resumed by faculty', 'info');
+                    showToast('Exam resumed by faculty', 'info');
                 } else if (status.status === 'submitted' || status.status === 'force_ended') {
+                    examFinalized = true;
                     window.location.href = `/result.html?id=${attemptId}`;
                 }
             } catch (err) {
@@ -587,9 +867,12 @@
         }
 
         async function autoSave() {
+            if (examFinalized) return;
+            saveLocalRecoverySnapshot();
             try {
                 await api.attempts.updateAnswers(attemptId, {
                     answers,
+                    long_answers: longAnswers,
                     time_remaining_seconds: timeRemaining,
                     current_question_index: currentQuestionIndex,
                     current_section_id: currentSectionId
@@ -600,21 +883,35 @@
         }
 
         async function submitExam(isAuto = false) {
+            if (submittingExam || examFinalized) return;
             if (!isAuto && !confirm('Are you sure you want to submit your exam? You cannot change your answers after this.')) return;
             
             try {
+                submittingExam = true;
+                examFinalized = true;
+                await stopAllRecordings();
                 await api.attempts.submit(attemptId);
+                clearLocalRecoverySnapshot();
                 window.location.href = `/result.html?id=${attemptId}`;
             } catch (err) {
+                submittingExam = false;
+                examFinalized = false;
                 showToast(err.message, 'error');
             }
         }
 
         // Proctoring Logic
         async function initProctoring() {
+            const voiceStatus = document.getElementById('voiceStatus');
+            const faceStatus = document.getElementById('faceStatus');
+            const objectStatus = document.getElementById('objectStatus');
+            voiceStatus.className = 'status-dot dot-amber';
+            faceStatus.className = 'status-dot dot-amber';
+            objectStatus.className = 'status-dot dot-amber';
+
             // Tab Switching
             document.addEventListener('visibilitychange', () => {
-                if (document.hidden) {
+                if (document.hidden && !examFinalized) {
                     tabSwitchCount++;
                     let message = '';
                     if (tabSwitchCount === 1) {
@@ -635,6 +932,7 @@
 
             // Copy-Paste Blocking
             document.addEventListener('keydown', (e) => {
+                if (examFinalized) return;
                 // Block Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, F12, Ctrl+Shift+I
                 if ((e.ctrlKey && ['c', 'v', 'x', 'a'].includes(e.key.toLowerCase())) ||
                     e.key === 'F12' ||
@@ -651,6 +949,7 @@
             });
             
             document.addEventListener('copy', e => { 
+                if (examFinalized) return;
                 e.preventDefault(); 
                 copyPasteCount++;
                 logViolation('copy_paste_attempt', `Copy attempt blocked (${copyPasteCount}/3)`, 'warning');
@@ -658,6 +957,7 @@
             });
             
             document.addEventListener('paste', e => { 
+                if (examFinalized) return;
                 e.preventDefault(); 
                 copyPasteCount++;
                 logViolation('copy_paste_attempt', `Paste attempt blocked (${copyPasteCount}/3)`, 'warning');
@@ -665,25 +965,32 @@
             });
             
             document.addEventListener('contextmenu', e => {
+                if (examFinalized) return;
                 e.preventDefault();
                 copyPasteCount++;
                 logViolation('copy_paste_attempt', `Right-click blocked (${copyPasteCount}/3)`, 'warning');
             });
 
             // Window blur detection — Alt+Tab, clicking outside browser
-            let windowBlurCount = 0;
             window.addEventListener('blur', () => {
-                windowBlurCount++;
-                const message = `Window focus lost — possible Alt+Tab (${windowBlurCount}/5)`;
+                if (examFinalized || document.hidden) return;
+
+                const now = Date.now();
+                if (now - lastFocusLossAt < 4000) return;
+                lastFocusLossAt = now;
+
+                blurViolationCount++;
+                const message = `Window focus lost - possible Alt+Tab (${blurViolationCount}/5)`;
                 logViolation('window_blur', message, 'warning');
-                showToast(`\u26a0\ufe0f ${message}`, 'warning');
-                if (windowBlurCount >= 5) {
+                showToast(message, 'warning');
+                if (blurViolationCount >= 5) {
                     forceEndExam('Excessive window switching detected');
                 }
             });
 
             // Block Print Screen
             document.addEventListener('keyup', (e) => {
+                if (examFinalized) return;
                 if (e.key === 'PrintScreen') {
                     navigator.clipboard.writeText('').catch(() => {});
                     logViolation('copy_paste_attempt', 'Print Screen attempt blocked', 'warning');
@@ -691,29 +998,7 @@
                 }
             });
 
-            // Webcam & Audio - separated from AI model loading
-            let stream = null;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            } catch (e) {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    showToast('Microphone unavailable - voice monitoring disabled', 'warning');
-                } catch (e2) {
-                    showToast('Camera access required for proctoring', 'error');
-                }
-            }
-
-            if (stream) {
-                const video = document.getElementById('webcam');
-                video.srcObject = stream;
-                try { await video.play(); } catch (e) { /* autoplay handles this */ }
-
-                // Start voice detection immediately (no AI models needed)
-                if (stream.getAudioTracks().length > 0) {
-                    startVoiceDetection(stream);
-                }
-            }
+            const stream = await setupProctoringMedia(true);
 
             // Load AI models separately - camera/mic still works if these fail
             try {
@@ -726,6 +1011,7 @@
                 startFaceDetection();
             } catch (err) {
                 console.error('Face detection models failed to load:', err);
+                faceStatus.className = 'status-dot dot-amber';
                 showToast('Face detection unavailable', 'warning');
             }
 
@@ -735,25 +1021,173 @@
                 startObjectDetection(objectModel);
             } catch (err) {
                 console.error('Object detection model failed to load:', err);
+                objectStatus.className = 'status-dot dot-amber';
                 showToast('Object detection unavailable', 'warning');
+            }
+        }
+
+        async function setupProctoringMedia(showWarnings = false) {
+            const voiceStatus = document.getElementById('voiceStatus');
+            const faceStatus = document.getElementById('faceStatus');
+            const objectStatus = document.getElementById('objectStatus');
+
+            if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                faceStatus.className = 'status-dot dot-red';
+                objectStatus.className = 'status-dot dot-red';
+                voiceStatus.className = 'status-dot dot-red';
+                if (showWarnings) {
+                    showToast('Camera and microphone need HTTPS or localhost access.', 'error', 4500);
+                }
+                return null;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                faceStatus.className = 'status-dot dot-red';
+                objectStatus.className = 'status-dot dot-red';
+                voiceStatus.className = 'status-dot dot-red';
+                if (showWarnings) {
+                    showToast('This browser does not support camera/microphone access.', 'error', 4500);
+                }
+                return null;
+            }
+
+            if (proctoringStream) {
+                proctoringStream.getTracks().forEach(track => track.stop());
+                proctoringStream = null;
+            }
+            clearInterval(voiceDetectionInterval);
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close().catch(() => {});
+            }
+
+            const mediaConstraints = {
+                video: {
+                    facingMode: 'user',
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                },
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            };
+
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+            } catch (error) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: mediaConstraints.video });
+                    voiceStatus.className = 'status-dot dot-amber';
+                    if (showWarnings) {
+                        showToast('Camera is on, but microphone permission is blocked or unavailable.', 'warning', 4500);
+                    }
+                } catch (fallbackError) {
+                    faceStatus.className = 'status-dot dot-red';
+                    objectStatus.className = 'status-dot dot-red';
+                    voiceStatus.className = 'status-dot dot-red';
+                    if (showWarnings) {
+                        const permissionMessage = fallbackError.name === 'NotAllowedError'
+                            ? 'Camera permission was denied. Allow camera and microphone in the browser site settings.'
+                            : fallbackError.name === 'NotFoundError'
+                                ? 'No working camera was found on this device.'
+                                : `Unable to start camera: ${fallbackError.message || fallbackError.name}`;
+                        showToast(permissionMessage, 'error', 5000);
+                    }
+                    return null;
+                }
+            }
+
+            proctoringStream = stream;
+            const video = document.getElementById('webcam');
+            video.srcObject = stream;
+            try { await video.play(); } catch (_) {}
+
+            if (stream.getAudioTracks().length > 0) {
+                try {
+                    startVoiceDetection(stream);
+                } catch (error) {
+                    voiceStatus.className = 'status-dot dot-amber';
+                    if (showWarnings) {
+                        showToast('Microphone started, but voice detection could not initialize fully.', 'warning', 4500);
+                    }
+                }
+            } else if (showWarnings) {
+                voiceStatus.className = 'status-dot dot-amber';
+                showToast('No microphone audio track was detected for this exam session.', 'warning', 4500);
+            }
+
+            try {
+                await startMediaRecording('webcam', stream);
+            } catch (error) {
+                console.error('Webcam recording could not start', error);
+                setRecordingStatus('webcam', 'red');
+                if (showWarnings) {
+                    showToast('Webcam is live, but recording could not be started in this browser.', 'warning', 4500);
+                }
+            }
+
+            return stream;
+        }
+
+        async function retryProctoringAccess() {
+            await setupProctoringMedia(true);
+        }
+
+        async function startScreenCaptureFlow(showWarnings = false) {
+            if (!navigator.mediaDevices?.getDisplayMedia) {
+                setRecordingStatus('screen', 'red');
+                if (showWarnings) {
+                    showToast('This browser does not support screen recording.', 'error', 4500);
+                }
+                return;
+            }
+
+            if (recordingSessions.screen.active) return;
+
+            try {
+                screenCaptureStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { displaySurface: 'browser' },
+                    audio: false
+                });
+
+                const [videoTrack] = screenCaptureStream.getVideoTracks();
+                if (videoTrack) {
+                    videoTrack.addEventListener('ended', async () => {
+                        setRecordingStatus('screen', 'red');
+                        await logViolation('window_blur', 'Screen sharing was stopped during the exam', 'warning');
+                        showToast('Screen sharing stopped. Please start screen recording again.', 'warning', 4500);
+                        await stopMediaRecording('screen');
+                    });
+                }
+
+                await startMediaRecording('screen', screenCaptureStream);
+                await logViolation('screen_recording_started', 'Screen recording started successfully', 'info');
+            } catch (error) {
+                console.error('Screen recording could not start', error);
+                setRecordingStatus('screen', 'red');
+                if (showWarnings) {
+                    showToast('Screen recording was blocked or cancelled. Please share your exam screen.', 'warning', 4500);
+                }
             }
         }
 
         function startFaceDetection() {
             const video = document.getElementById('webcam');
-            const canvas = document.getElementById('detection-overlay');
             const faceStatus = document.getElementById('faceStatus');
             const container = document.getElementById('webcam-container');
             let consecutiveNoFace = 0;
             let consecutiveSameGaze = 0;
             let totalGazeViolations = 0;
-            let totalFaceTurnViolations = 0; // separate counter for completely looking away
+            let totalFaceTurnViolations = 0;
             let lastGazeDirection = null;
             let consecutiveMultiFace = 0;
             let multiPersonWarnings = 0;
             
             faceDetectionInterval = setInterval(async () => {
                 try {
+                    if (examFinalized || video.readyState < 2) return;
                     const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
                         .withFaceLandmarks();
                     
@@ -765,17 +1199,15 @@
                         faceStatus.className = 'status-dot dot-red';
                         container.className = 'mb-4 border-2 border-red-500 transition-colors duration-300';
                         
-                        // After 3 consecutive (6 seconds) — likely completely looking away
-                        if (consecutiveNoFace === 3) {
+                        if (consecutiveNoFace === 4) {
                             totalFaceTurnViolations++;
-                            await logViolation('face_not_detected', `Face not visible — you may be looking completely away (${totalFaceTurnViolations}/5)`, 'warning');
-                            showToast(`🚨 LOOK AT THE SCREEN! Your face is not visible (${totalFaceTurnViolations}/5)`, 'error');
+                            await logViolation('face_not_detected', `Face not visible - look back at the screen (${totalFaceTurnViolations}/5)`, 'warning');
+                            showToast(`Face not visible. Look back at the screen (${totalFaceTurnViolations}/5)`, 'error');
                         }
-                        // Keep warning every 5 consecutive after that
-                        if (consecutiveNoFace > 3 && consecutiveNoFace % 3 === 0) {
+                        if (consecutiveNoFace > 4 && consecutiveNoFace % 4 === 0) {
                             totalFaceTurnViolations++;
-                            await logViolation('face_not_detected', `Still not facing camera (${totalFaceTurnViolations}/5)`, 'critical');
-                            showToast(`🚨 FACE THE CAMERA NOW! (${totalFaceTurnViolations}/5)`, 'error');
+                            await logViolation('face_not_detected', `Face still not visible (${totalFaceTurnViolations}/5)`, 'critical');
+                            showToast(`Face still not visible (${totalFaceTurnViolations}/5)`, 'error');
                         }
                         
                         if (totalFaceTurnViolations >= 5) {
@@ -787,11 +1219,10 @@
                         faceStatus.className = 'status-dot dot-red';
                         container.className = 'mb-4 border-2 border-red-500 transition-colors duration-300';
                         
-                        // Warn after 2 consecutive multi-face detections (4 seconds)
-                        if (consecutiveMultiFace >= 2) {
+                        if (consecutiveMultiFace >= 3) {
                             multiPersonWarnings++;
                             await logViolation('multiple_faces', `Multiple persons detected (warning ${multiPersonWarnings}/3)`, 'critical');
-                            showToast(`⚠️ Multiple persons detected! (${multiPersonWarnings}/3)`, 'error');
+                            showToast(`Multiple persons detected (${multiPersonWarnings}/3)`, 'error');
                             consecutiveMultiFace = 0;
                             
                             if (multiPersonWarnings >= 3) {
@@ -804,12 +1235,10 @@
                         faceStatus.className = 'status-dot dot-green';
                         container.className = 'mb-4 border-2 border-emerald-500 transition-colors duration-300';
                         
-                        // Gaze tracking — combine head position + face aspect + nose landmark
                         const detection = detections[0];
                         const landmarks = detection.landmarks;
                         const box = detection.detection.box;
                         
-                        // Method 1: Head position in frame
                         const videoWidth = video.videoWidth || 640;
                         const videoHeight = video.videoHeight || 480;
                         const faceCenterX = box.x + box.width / 2;
@@ -817,10 +1246,9 @@
                         const faceRelativeX = faceCenterX / videoWidth;
                         const faceRelativeY = faceCenterY / videoHeight;
                         
-                        // Method 2: Face aspect ratio — turned face becomes narrower
                         const faceAspect = box.width / box.height;
+                        const gazeDirection = calculateGazeDirection(landmarks);
                         
-                        // Method 3: Nose tip position relative to face bounding box
                         const nose = landmarks.getNose();
                         let landmarkDirection = 'center';
                         if (nose && nose.length > 3) {
@@ -831,14 +1259,12 @@
                         }
                         
                         let headDirection = 'center';
-                        // Check 1: Face center moved to edge of frame
-                        if (faceRelativeX < 0.25) headDirection = 'right';
-                        else if (faceRelativeX > 0.75) headDirection = 'left';
-                        else if (faceRelativeY < 0.20) headDirection = 'up';
-                        else if (faceRelativeY > 0.80) headDirection = 'down';
-                        // Check 2: Face is narrow = head turned sideways
-                        else if (faceAspect < 0.68) headDirection = faceRelativeX < 0.5 ? 'right' : 'left';
-                        // Check 3: Nose shifted to edge of face bounding box
+                        if (faceRelativeX < 0.28) headDirection = 'right';
+                        else if (faceRelativeX > 0.72) headDirection = 'left';
+                        else if (faceRelativeY < 0.24) headDirection = 'up';
+                        else if (faceRelativeY > 0.76) headDirection = 'down';
+                        else if (faceAspect < 0.72) headDirection = faceRelativeX < 0.5 ? 'right' : 'left';
+                        else if (gazeDirection !== 'center') headDirection = gazeDirection;
                         else if (landmarkDirection !== 'center') headDirection = landmarkDirection;
                         
                         if (headDirection !== 'center') {
@@ -849,12 +1275,11 @@
                             }
                             lastGazeDirection = headDirection;
                             
-                            // Immediate warning on first detection
-                            if (consecutiveSameGaze >= 1) {
+                            if (consecutiveSameGaze >= 2) {
                                 totalGazeViolations++;
                                 const message = `Head turned ${headDirection} detected (${totalGazeViolations}/5) - Focus on screen!`;
                                 await logViolation('gaze_violation', message, 'warning');
-                                showToast(`👀 ${message}`, 'warning');
+                                showToast(message, 'warning');
                                 consecutiveSameGaze = 0;
                                 
                                 if (totalGazeViolations >= 5) {
@@ -869,7 +1294,7 @@
                 } catch (error) {
                     console.error('Face detection error:', error);
                 }
-            }, 800);
+            }, 900);
         }
 
         function calculateGazeDirection(landmarks) {
@@ -922,29 +1347,39 @@
             const objectStatus = document.getElementById('objectStatus');
             console.log('Object detection started');
             let objectCooldown = false;
+            let consecutiveBannedDetections = 0;
             objectDetectionInterval = setInterval(async () => {
                 try {
+                    if (examFinalized) return;
                     if (video.readyState < 2) return;
                     const predictions = await model.detect(video);
-                    const banned = ['cell phone', 'book', 'laptop', 'remote'];
-                    let detected = false;
-                    predictions.forEach(p => {
-                        const cls = p.class.toLowerCase();
-                        if (banned.includes(cls) && p.score > 0.3) {
-                            detected = true;
-                            if (!objectCooldown) {
-                                objectCooldown = true;
-                                logViolation('object_detected', `${p.class} detected with ${Math.round(p.score*100)}% confidence`, 'critical');
-                                showToast(`\u26a0\ufe0f ${p.class.toUpperCase()} detected!`, 'error');
-                                setTimeout(() => { objectCooldown = false; }, 10000);
-                            }
-                        }
-                    });
+                    const banned = ['cell phone', 'book', 'tablet', 'remote', 'laptop'];
+                    const suspiciousObject = predictions
+                        .filter(p => banned.includes((p.class || '').toLowerCase()) && p.score > 0.38)
+                        .sort((a, b) => b.score - a.score)[0];
+                    const detected = !!suspiciousObject;
+
+                    if (detected) {
+                        consecutiveBannedDetections++;
+                    } else {
+                        consecutiveBannedDetections = 0;
+                    }
+
+                    if (detected && consecutiveBannedDetections >= 1 && !objectCooldown) {
+                        objectCooldown = true;
+                        const objectName = suspiciousObject.class;
+                        logViolation('object_detected', `${objectName} detected with ${Math.round(suspiciousObject.score * 100)}% confidence`, 'critical');
+                        showToast(`${objectName} detected near the exam screen`, 'error');
+                        setTimeout(() => {
+                            objectCooldown = false;
+                        }, 10000);
+                        consecutiveBannedDetections = 0;
+                    }
                     objectStatus.className = detected ? 'status-dot dot-red' : 'status-dot dot-green';
                 } catch (err) {
                     console.error('Object detection error:', err);
                 }
-            }, 1500);
+            }, 1400);
         }
 
         function startVoiceDetection(stream) {
@@ -955,51 +1390,41 @@
             audioAnalyser = audioContext.createAnalyser();
             const source = audioContext.createMediaStreamSource(stream);
             source.connect(audioAnalyser);
-            audioAnalyser.fftSize = 1024;
-            const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
+            audioAnalyser.fftSize = 2048;
+            audioAnalyser.smoothingTimeConstant = 0.85;
+            const dataArray = new Uint8Array(audioAnalyser.fftSize);
             const voiceStatus = document.getElementById('voiceStatus');
             let consecutiveHighVolume = 0;
-            let voiceViolationCount = 0;
-
-            // Focus only on core human speech range (85Hz - 3000Hz)
-            const sampleRate = audioContext.sampleRate;
-            const binSize = sampleRate / audioAnalyser.fftSize;
-            const voiceStartBin = Math.floor(85 / binSize);
-            const voiceEndBin = Math.min(Math.ceil(3000 / binSize), audioAnalyser.frequencyBinCount - 1);
-
-            // Calibrate ambient noise for first 3 seconds
             let ambientSum = 0;
-            let ambientMax = 0;
             let calibrationSamples = 0;
-            const calibrationDuration = 6; // 6 readings = 3 seconds at 500ms interval
+            const calibrationDuration = 5;
 
-            setInterval(async () => {
+            voiceDetectionInterval = setInterval(async () => {
                 try {
-                    audioAnalyser.getByteFrequencyData(dataArray);
-                    let sum = 0;
-                    for (let i = voiceStartBin; i <= voiceEndBin; i++) {
-                        sum += dataArray[i];
+                    if (examFinalized) return;
+                    audioAnalyser.getByteTimeDomainData(dataArray);
+                    let sumSquares = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        const normalized = (dataArray[i] - 128) / 128;
+                        sumSquares += normalized * normalized;
                     }
-                    const avg = sum / (voiceEndBin - voiceStartBin + 1);
+                    const rms = Math.sqrt(sumSquares / dataArray.length);
                     
-                    // Calibrate ambient noise level during first few seconds
                     if (calibrationSamples < calibrationDuration) {
-                        ambientSum += avg;
-                        ambientMax = Math.max(ambientMax, avg);
+                        ambientSum += rms;
                         calibrationSamples++;
+                        voiceStatus.className = 'status-dot dot-amber';
                         return;
                     }
 
-                    // Use dynamic threshold: average ambient + buffer, minimum 58
                     const ambientAvg = ambientSum / calibrationDuration;
-                    const voiceThreshold = Math.max(58, ambientAvg + 25);
+                    const voiceThreshold = Math.max(0.02, ambientAvg * 1.35);
                     
-                    if (avg > voiceThreshold) {
+                    if (rms > voiceThreshold) {
                         consecutiveHighVolume++;
                         voiceStatus.className = 'status-dot dot-amber';
                         
-                        // Log violation after 8 consecutive readings (4 seconds of sustained speech)
-                        if (consecutiveHighVolume >= 8) {
+                        if (consecutiveHighVolume >= 4) {
                             voiceViolationCount++;
                             await logViolation('voice_detected', `Speaking detected during exam (warning ${voiceViolationCount}/5)`, 'warning');
                             showVoiceWarning(voiceViolationCount);
@@ -1015,19 +1440,17 @@
                     }
                 } catch (error) {
                     console.error('Voice detection error:', error);
+                    voiceStatus.className = 'status-dot dot-amber';
                 }
-            }, 500);
+            }, 350);
         }
 
         function showVoiceWarning(count) {
-            const toast = document.getElementById('toast');
-            toast.textContent = `🎙️ VOICE DETECTED (${count}/5) — Please maintain silence during the exam!`;
-            toast.style.backgroundColor = '#dc2626';
-            toast.classList.remove('translate-y-20', 'opacity-0');
-            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 4000);
+            showToast(`Voice detected (${count}/5). Please maintain silence during the exam.`, 'error', 4000);
         }
 
         async function logViolation(type, desc, severity = 'warning') {
+            if (examFinalized || !examData) return;
             try {
                 await api.attempts.logActivity(attemptId, {
                     activity_type: type,
@@ -1036,20 +1459,37 @@
                     time_into_exam_seconds: (examData.duration_minutes * 60) - timeRemaining,
                     severity
                 });
-                showToast(desc, severity === 'critical' ? 'error' : 'info');
             } catch (err) {
                 console.error('Failed to log violation', err);
             }
         }
 
         async function forceEndExam(reason) {
+            if (examFinalized || submittingExam) return;
+            examFinalized = true;
+            submittingExam = true;
             clearInterval(timerInterval);
+            clearInterval(statusPollInterval);
+            clearInterval(faceDetectionInterval);
+            clearInterval(objectDetectionInterval);
+            clearInterval(voiceDetectionInterval);
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close().catch(() => {});
+            }
+            await stopAllRecordings();
+            if (proctoringStream) {
+                proctoringStream.getTracks().forEach(track => track.stop());
+                proctoringStream = null;
+            }
             try {
                 await api.attempts.submit(attemptId, { force_reason: reason });
-                alert(`Exam Terminated: ${reason}`);
-                window.location.href = `/result.html?id=${attemptId}`;
+                clearLocalRecoverySnapshot();
+                showToast(`Exam terminated: ${reason}`, 'error', 2200);
+                setTimeout(() => {
+                    window.location.href = `/result.html?id=${attemptId}`;
+                }, 1200);
             } catch (err) {
-                window.location.href = '/student-dashboard.html';
+                window.location.href = `/result.html?id=${attemptId}`;
             }
         }
 
@@ -1105,16 +1545,21 @@
             }
         }
 
-        function showToast(msg, type = 'info') {
+        function showToast(msg, type = 'info', duration = 3000) {
             const toast = document.getElementById('toast');
+            if (lastToastTimeout) clearTimeout(lastToastTimeout);
             toast.textContent = msg;
-            toast.style.backgroundColor = type === 'error' ? '#ef4444' : '#1e293b';
+            toast.style.backgroundColor =
+                type === 'error' ? '#ef4444' :
+                type === 'warning' ? '#f59e0b' :
+                type === 'success' ? '#10b981' : '#1e293b';
             toast.classList.remove('translate-y-20', 'opacity-0');
-            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+            lastToastTimeout = setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), duration);
         }
 
         window.addEventListener('offline', freezeTimer);
         window.addEventListener('online', resumeTimer);
+        window.addEventListener('beforeunload', saveLocalRecoverySnapshot);
 
         window.onload = initExam;
     </script>

@@ -40,3 +40,58 @@ export const updateProfileNotes = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+export const getStudentHistory = async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    const [studentRows] = await pool.query(
+      `SELECT id, name, email
+       FROM users
+       WHERE id = ? AND role = 'student'`,
+      [studentId]
+    );
+
+    if (studentRows.length === 0) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const [attempts] = await pool.query(
+      `SELECT
+        sa.*,
+        e.title AS exam_title
+      FROM student_attempts sa
+      JOIN exams e ON sa.exam_id = e.id
+      WHERE sa.student_id = ? AND e.created_by = ?
+      ORDER BY COALESCE(sa.submit_time, sa.start_time) DESC, sa.id DESC`,
+      [studentId, req.user.id]
+    );
+
+    const [activities] = await pool.query(
+      `SELECT
+        act.id,
+        act.attempt_id,
+        act.activity_type,
+        act.description,
+        act.question_index,
+        act.time_into_exam_seconds,
+        act.severity,
+        act.timestamp,
+        e.title AS exam_title
+      FROM student_activity act
+      JOIN exams e ON act.exam_id = e.id
+      WHERE act.student_id = ? AND e.created_by = ?
+      ORDER BY act.timestamp DESC, act.id DESC`,
+      [studentId, req.user.id]
+    );
+
+    res.json({
+      student: studentRows[0],
+      attempts,
+      activities
+    });
+  } catch (error) {
+    console.error('Error getting student history:', error);
+    res.status(500).json({ error: error.message });
+  }
+};

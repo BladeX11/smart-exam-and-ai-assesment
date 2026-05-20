@@ -158,8 +158,19 @@
                             <option value="hard">Hard</option>
                         </select>
                     </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Question Type</label>
+                        <select id="qType" onchange="toggleQuestionTypeFields()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
+                            <option value="mcq">Multiple Choice</option>
+                            <option value="long_answer">Paragraph Answer</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Weightage (Marks)</label>
+                        <input type="number" id="qMarks" min="1" value="1" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" required>
+                    </div>
                 </div>
-                <div class="grid grid-cols-2 gap-4">
+                <div id="mcqFields" class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Option A</label>
                         <input type="text" id="optA" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" required>
@@ -177,7 +188,7 @@
                         <input type="text" id="optD" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" required>
                     </div>
                 </div>
-                <div>
+                <div id="mcqCorrectAnswerField">
                     <label class="block text-sm font-medium text-slate-600 mb-1">Correct Answer</label>
                     <select id="qCorrect" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
                         <option value="A">Option A</option>
@@ -185,6 +196,16 @@
                         <option value="C">Option C</option>
                         <option value="D">Option D</option>
                     </select>
+                </div>
+                <div id="longAnswerFields" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Model Answer</label>
+                        <textarea id="qSampleAnswer" rows="4" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" placeholder="Write the ideal answer that should earn full marks."></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Expected Keywords</label>
+                        <input type="text" id="qGradingKeywords" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" placeholder="e.g. stack, LIFO, push, pop">
+                    </div>
                 </div>
                 <div class="flex gap-4 pt-4">
                     <button type="button" onclick="closeCreateModal()" class="flex-1 secondary-btn">Cancel</button>
@@ -202,10 +223,13 @@
             <div class="mb-6 p-4 bg-blue-50 rounded-xl">
                 <p class="text-sm font-medium text-blue-800 mb-2">CSV Format Required:</p>
                 <code class="text-xs bg-blue-100 p-2 rounded block">
-                    question_text,option_a,option_b,option_c,option_d,correct_answer,topic,difficulty,marks
+                    question_text,question_type,topic,difficulty,marks,option_a,option_b,option_c,option_d,correct_answer,sample_answer,grading_keywords
                 </code>
                 <p class="text-xs text-blue-600 mt-2">
-                    Example: "What is 2+2?","3","4","5","6","A","Mathematics","easy","1"
+                    MCQ Example: "What is 2+2?","mcq","Mathematics","easy","2","3","4","5","6","B"
+                </p>
+                <p class="text-xs text-blue-600 mt-1">
+                    Paragraph Example: "Explain stack vs queue","long_answer","DSA","medium","5","","","","",""
                 </p>
             </div>
 
@@ -221,14 +245,15 @@
                         <thead class="bg-slate-50">
                             <tr>
                                 <th class="p-2 border">Question</th>
+                                <th class="p-2 border">Type</th>
+                                <th class="p-2 border">Topic</th>
+                                <th class="p-2 border">Difficulty</th>
+                                <th class="p-2 border">Marks</th>
                                 <th class="p-2 border">Option A</th>
                                 <th class="p-2 border">Option B</th>
                                 <th class="p-2 border">Option C</th>
                                 <th class="p-2 border">Option D</th>
                                 <th class="p-2 border">Correct</th>
-                                <th class="p-2 border">Topic</th>
-                                <th class="p-2 border">Difficulty</th>
-                                <th class="p-2 border">Marks</th>
                             </tr>
                         </thead>
                         <tbody id="previewTableBody" class="divide-y">
@@ -270,11 +295,37 @@
                 questions.forEach(q => {
                     const card = document.createElement('div');
                     card.className = 'card hover:border-[#135bec] transition-all cursor-pointer';
+                    const questionType = q.question_type || 'mcq';
+                    const marks = q.marks || 1;
+                    const mcqOptionsMarkup = questionType === 'mcq'
+                        ? `
+                            <div class="grid grid-cols-2 gap-x-8 gap-y-2">
+                                <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'A' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                    <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">A</span> ${q.option_a || ''}
+                                </div>
+                                <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'B' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                    <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">B</span> ${q.option_b || ''}
+                                </div>
+                                <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'C' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                    <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">C</span> ${q.option_c || ''}
+                                </div>
+                                <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'D' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
+                                    <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">D</span> ${q.option_d || ''}
+                                </div>
+                            </div>
+                        `
+                        : `
+                            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                Students will answer this question in a paragraph/long-answer text box.
+                            </div>
+                        `;
                     card.innerHTML = `
                         <div class="flex justify-between items-start mb-4">
                             <div class="flex gap-2">
                                 <span class="badge badge-${q.difficulty}">${(q.difficulty || 'easy').toUpperCase()}</span>
                                 <span class="px-2 py-1 bg-blue-50 text-[#135bec] rounded-lg text-[10px] font-bold uppercase">${q.topic}</span>
+                                <span class="px-2 py-1 bg-violet-50 text-violet-700 rounded-lg text-[10px] font-bold uppercase">${questionType === 'long_answer' ? 'Paragraph' : 'MCQ'}</span>
+                                <span class="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg text-[10px] font-bold uppercase">${marks} Mark${marks > 1 ? 's' : ''}</span>
                             </div>
                             <div class="flex gap-2">
                                 <button onclick="editQuestion(${q.id})" class="p-1 text-slate-400 hover:text-[#135bec]"><span class="material-symbols-outlined text-sm">edit</span></button>
@@ -282,20 +333,7 @@
                             </div>
                         </div>
                         <p class="text-sm font-bold text-slate-800 mb-4">${q.question_text}</p>
-                        <div class="grid grid-cols-2 gap-x-8 gap-y-2">
-                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'A' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
-                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">A</span> ${q.option_a}
-                            </div>
-                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'B' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
-                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">B</span> ${q.option_b}
-                            </div>
-                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'C' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
-                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">C</span> ${q.option_c}
-                            </div>
-                            <div class="flex items-center gap-2 text-xs ${q.correct_answer === 'D' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">
-                                <span class="w-4 h-4 rounded-full border border-slate-200 flex items-center justify-center text-[8px]">D</span> ${q.option_d}
-                            </div>
-                        </div>
+                        ${mcqOptionsMarkup}
                     `;
                     list.appendChild(card);
                 });
@@ -317,11 +355,29 @@
             document.getElementById('qText').value = '';
             document.getElementById('qTopic').value = '';
             document.getElementById('qDifficulty').value = 'easy';
+            document.getElementById('qType').value = 'mcq';
+            document.getElementById('qMarks').value = '1';
             document.getElementById('optA').value = '';
             document.getElementById('optB').value = '';
             document.getElementById('optC').value = '';
             document.getElementById('optD').value = '';
             document.getElementById('qCorrect').value = 'A';
+            document.getElementById('qSampleAnswer').value = '';
+            document.getElementById('qGradingKeywords').value = '';
+            toggleQuestionTypeFields();
+        }
+
+        function toggleQuestionTypeFields() {
+            const isMcq = document.getElementById('qType').value === 'mcq';
+            document.getElementById('mcqFields').classList.toggle('hidden', !isMcq);
+            document.getElementById('mcqCorrectAnswerField').classList.toggle('hidden', !isMcq);
+            document.getElementById('longAnswerFields').classList.toggle('hidden', isMcq);
+
+            ['optA', 'optB', 'optC', 'optD'].forEach((id) => {
+                document.getElementById(id).required = isMcq;
+            });
+            document.getElementById('qCorrect').required = isMcq;
+            document.getElementById('qSampleAnswer').required = !isMcq;
         }
 
         async function editQuestion(id) {
@@ -335,11 +391,16 @@
                 document.getElementById('qText').value = q.question_text || '';
                 document.getElementById('qTopic').value = q.topic || '';
                 document.getElementById('qDifficulty').value = q.difficulty || 'easy';
+                document.getElementById('qType').value = q.question_type || 'mcq';
+                document.getElementById('qMarks').value = q.marks || 1;
                 document.getElementById('optA').value = q.option_a || '';
                 document.getElementById('optB').value = q.option_b || '';
                 document.getElementById('optC').value = q.option_c || '';
                 document.getElementById('optD').value = q.option_d || '';
                 document.getElementById('qCorrect').value = q.correct_answer || 'A';
+                document.getElementById('qSampleAnswer').value = q.sample_answer || '';
+                document.getElementById('qGradingKeywords').value = Array.isArray(q.grading_keywords) ? q.grading_keywords.join(', ') : (q.grading_keywords || '');
+                toggleQuestionTypeFields();
                 openCreateModal();
             } catch (err) {
                 showToast(err.message, 'error');
@@ -359,17 +420,22 @@
 
         async function handleCreateQuestion(e) {
             e.preventDefault();
+            const questionType = document.getElementById('qType').value;
             const data = {
                 question_text: document.getElementById('qText').value,
                 topic: document.getElementById('qTopic').value,
                 difficulty: document.getElementById('qDifficulty').value,
-                option_a: document.getElementById('optA').value,
-                option_b: document.getElementById('optB').value,
-                option_c: document.getElementById('optC').value,
-                option_d: document.getElementById('optD').value,
-                correct_answer: document.getElementById('qCorrect').value,
-                question_type: 'mcq',
-                marks: 1
+                question_type: questionType,
+                marks: parseInt(document.getElementById('qMarks').value) || 1,
+                option_a: questionType === 'mcq' ? document.getElementById('optA').value : null,
+                option_b: questionType === 'mcq' ? document.getElementById('optB').value : null,
+                option_c: questionType === 'mcq' ? document.getElementById('optC').value : null,
+                option_d: questionType === 'mcq' ? document.getElementById('optD').value : null,
+                correct_answer: questionType === 'mcq' ? document.getElementById('qCorrect').value : null,
+                sample_answer: questionType === 'long_answer' ? document.getElementById('qSampleAnswer').value : null,
+                grading_keywords: questionType === 'long_answer'
+                    ? document.getElementById('qGradingKeywords').value.split(',').map(keyword => keyword.trim()).filter(Boolean)
+                    : []
             };
             try {
                 if (editingQuestionId) {
@@ -427,9 +493,31 @@
                 }
                 fields.push(current.trim());
 
-                if (fields.length >= 8) {
+                const secondField = (fields[1] || '').toLowerCase();
+                const usesNewFormat = secondField === 'mcq' || secondField === 'long_answer';
+
+                if (usesNewFormat && fields.length >= 5) {
+                    const questionType = secondField;
                     questions.push({
                         question_text: fields[0],
+                        question_type: questionType,
+                        topic: fields[2] || 'General',
+                        difficulty: (fields[3] || 'medium').toLowerCase(),
+                        marks: parseInt(fields[4]) || 1,
+                        option_a: questionType === 'mcq' ? fields[5] : '',
+                        option_b: questionType === 'mcq' ? fields[6] : '',
+                        option_c: questionType === 'mcq' ? fields[7] : '',
+                        option_d: questionType === 'mcq' ? fields[8] : '',
+                        correct_answer: questionType === 'mcq' ? (fields[9] || '').toUpperCase() : '',
+                        sample_answer: questionType === 'long_answer' ? (fields[10] || '') : '',
+                        grading_keywords: questionType === 'long_answer'
+                            ? (fields[11] || '').split(/[\n,]/).map(keyword => keyword.trim()).filter(Boolean)
+                            : []
+                    });
+                } else if (fields.length >= 8) {
+                    questions.push({
+                        question_text: fields[0],
+                        question_type: 'mcq',
                         option_a: fields[1],
                         option_b: fields[2],
                         option_c: fields[3],
@@ -437,7 +525,9 @@
                         correct_answer: (fields[5] || '').toUpperCase(),
                         topic: fields[6] || 'General',
                         difficulty: (fields[7] || 'medium').toLowerCase(),
-                        marks: parseInt(fields[8]) || 1
+                        marks: parseInt(fields[8]) || 1,
+                        sample_answer: '',
+                        grading_keywords: []
                     });
                 }
             }
@@ -491,21 +581,22 @@
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td class="p-2 border max-w-xs truncate">${(q.question_text || '').substring(0, 50)}...</td>
+                    <td class="p-2 border uppercase">${q.question_type || 'mcq'}</td>
+                    <td class="p-2 border">${q.topic || ''}</td>
+                    <td class="p-2 border">${q.difficulty || ''}</td>
+                    <td class="p-2 border">${q.marks || 1}</td>
                     <td class="p-2 border">${q.option_a || ''}</td>
                     <td class="p-2 border">${q.option_b || ''}</td>
                     <td class="p-2 border">${q.option_c || ''}</td>
                     <td class="p-2 border">${q.option_d || ''}</td>
                     <td class="p-2 border font-bold">${q.correct_answer || ''}</td>
-                    <td class="p-2 border">${q.topic || ''}</td>
-                    <td class="p-2 border">${q.difficulty || ''}</td>
-                    <td class="p-2 border">${q.marks || 1}</td>
                 `;
                 tbody.appendChild(row);
             }
 
             if (questions.length > 5) {
                 const moreRow = document.createElement('tr');
-                moreRow.innerHTML = `<td colspan="9" class="p-2 text-center text-slate-400">...and ${questions.length - 5} more questions</td>`;
+                moreRow.innerHTML = `<td colspan="10" class="p-2 text-center text-slate-400">...and ${questions.length - 5} more questions</td>`;
                 tbody.appendChild(moreRow);
             }
 
@@ -559,6 +650,7 @@
         }
 
         window.onload = loadQuestions;
+        toggleQuestionTypeFields();
     </script>
 </body>
 </html>

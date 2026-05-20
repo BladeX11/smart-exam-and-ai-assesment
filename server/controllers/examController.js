@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { finalizeAttempt } from './attemptController.js';
 
 export const createExam = async (req, res) => {
   const { title, description, duration_minutes, total_marks, passing_marks, instructions, allow_calculator, shuffle_questions, shuffle_options, sections, show_results_after } = req.body;
@@ -93,14 +94,18 @@ export const getExamDetails = async (req, res) => {
     if (exams.length === 0) return res.status(404).json({ error: 'Exam not found' });
 
     const [sections] = await pool.query('SELECT * FROM exam_sections WHERE exam_id = ? ORDER BY section_order', [id]);
-    
-    const [questions] = await pool.query(`
-      SELECT eq.*, qb.question_text, qb.option_a, qb.option_b, qb.option_c, qb.option_d, qb.correct_answer, qb.question_type, qb.topic
-      FROM exam_questions eq
-      JOIN question_bank qb ON eq.question_bank_id = qb.id
-      WHERE eq.exam_id = ?
-      ORDER BY eq.section_id, eq.question_order
-    `, [id]);
+
+    const questionFields = req.user.role === 'faculty'
+      ? 'eq.*, qb.question_text, qb.option_a, qb.option_b, qb.option_c, qb.option_d, qb.correct_answer, qb.question_type, qb.topic, qb.difficulty'
+      : 'eq.*, qb.question_text, qb.option_a, qb.option_b, qb.option_c, qb.option_d, qb.question_type, qb.topic, qb.difficulty';
+    const [questions] = await pool.query(
+      `SELECT ${questionFields}
+       FROM exam_questions eq
+       JOIN question_bank qb ON eq.question_bank_id = qb.id
+       WHERE eq.exam_id = ?
+       ORDER BY eq.section_id, eq.question_order`,
+      [id]
+    );
 
     res.json({ ...exams[0], sections, questions });
   } catch (error) {
@@ -111,6 +116,9 @@ export const getExamDetails = async (req, res) => {
 export const getExamAttempts = async (req, res) => {
   const { id } = req.params;
   try {
+    const [ownedExam] = await pool.query('SELECT id FROM exams WHERE id = ? AND created_by = ?', [id, req.user.id]);
+    if (ownedExam.length === 0) return res.status(404).json({ error: 'Exam not found' });
+
     const [attempts] = await pool.query(
       `SELECT a.*, u.name as student_name 
        FROM student_attempts a 
@@ -120,6 +128,41 @@ export const getExamAttempts = async (req, res) => {
     );
     res.json(attempts);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getExamActivityFeed = async (req, res) => {
+  const { id } = req.params;
+  const limit = Math.min(Math.max(parseInt(req.query.limit || '100', 10), 1), 500);
+
+  try {
+    const [ownedExam] = await pool.query('SELECT id FROM exams WHERE id = ? AND created_by = ?', [id, req.user.id]);
+    if (ownedExam.length === 0) return res.status(404).json({ error: 'Exam not found' });
+
+    const [activities] = await pool.query(
+      `SELECT
+        sa.id,
+        sa.attempt_id,
+        sa.student_id,
+        sa.activity_type,
+        sa.description,
+        sa.question_index,
+        sa.time_into_exam_seconds,
+        sa.severity,
+        sa.timestamp,
+        u.name AS student_name
+      FROM student_activity sa
+      JOIN users u ON sa.student_id = u.id
+      WHERE sa.exam_id = ?
+      ORDER BY sa.timestamp DESC, sa.id DESC
+      LIMIT ?`,
+      [id, limit]
+    );
+
+    res.json(activities);
+  } catch (error) {
+    console.error('Error getting exam activity feed:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -189,10 +232,7 @@ export const updateExamStatus = async (req, res) => {
       );
       
       for (const attempt of attempts) {
-        await pool.query(
-          'UPDATE student_attempts SET status = ?, submit_time = CURRENT_TIMESTAMP WHERE id = ?',
-          ['submitted', attempt.id]
-        );
+        await finalizeAttempt(attempt.id, 'Exam ended by faculty');
       }
     }
 
@@ -224,7 +264,21 @@ export const getExamQuestions = async (req, res) => {
 
 export const addQuestionToExam = async (req, res) => {
   const { id } = req.params;
-  const { question_bank_id, marks, question_text, option_a, option_b, option_c, option_d, correct_answer, topic, difficulty } = req.body;
+  const {
+    question_bank_id,
+    marks,
+    question_text,
+    option_a,
+    option_b,
+    option_c,
+    option_d,
+    correct_answer,
+    topic,
+    difficulty,
+    question_type,
+    sample_answer,
+    grading_keywords
+  } = req.body;
   
   try {
     if (question_bank_id) {
@@ -238,17 +292,57 @@ export const addQuestionToExam = async (req, res) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
+
+        const normalizedType = (question_type || 'mcq').toLowerCase();
+        const normalizedMarks = Number.parseInt(marks, 10) || 1;
+        const normalizedCorrectAnswer = normalizedType === 'mcq'
+          ? correct_answer?.trim()?.toUpperCase()?.replace('OPTION_', '')
+          : null;
+        const normalizedKeywords = Array.isArray(grading_keywords)
+          ? grading_keywords
+          : typeof grading_keywords === 'string'
+            ? grading_keywords.split(/[\n,]/)
+            : [];
+
+        if (!question_text?.trim() || !topic?.trim()) {
+          return res.status(400).json({ error: 'Question text and topic are required' });
+        }
+
+        if (normalizedType === 'mcq') {
+          const missingOptions = [option_a, option_b, option_c, option_d].some((value) => !value?.trim());
+          if (missingOptions || !['A', 'B', 'C', 'D'].includes(normalizedCorrectAnswer)) {
+            return res.status(400).json({ error: 'MCQ questions require options A-D and a valid correct answer' });
+          }
+        } else if (!sample_answer?.trim()) {
+          return res.status(400).json({ error: 'Paragraph questions require a sample/model answer for grading' });
+        }
         
         const [questionResult] = await connection.query(
-          `INSERT INTO question_bank (created_by, question_text, option_a, option_b, option_c, option_d, correct_answer, topic, difficulty, marks, question_type) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'mcq')`,
-          [req.user.id, question_text, option_a, option_b, option_c, option_d, correct_answer, topic, difficulty, marks || 1]
+          `INSERT INTO question_bank (created_by, question_text, option_a, option_b, option_c, option_d, correct_answer, topic, difficulty, marks, question_type, sample_answer, grading_keywords) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            req.user.id,
+            question_text.trim(),
+            normalizedType === 'mcq' ? option_a?.trim() : null,
+            normalizedType === 'mcq' ? option_b?.trim() : null,
+            normalizedType === 'mcq' ? option_c?.trim() : null,
+            normalizedType === 'mcq' ? option_d?.trim() : null,
+            normalizedCorrectAnswer,
+            topic.trim(),
+            (difficulty || 'medium').toLowerCase(),
+            normalizedMarks,
+            normalizedType,
+            normalizedType === 'long_answer' ? sample_answer.trim() : null,
+            normalizedType === 'long_answer'
+              ? JSON.stringify(normalizedKeywords.map((keyword) => keyword.trim()).filter(Boolean))
+              : JSON.stringify([])
+          ]
         );
         
         const [[orderRow]] = await connection.query('SELECT COALESCE(MAX(question_order), 0) + 1 AS next_order FROM exam_questions WHERE exam_id = ?', [id]);
         const [examQuestionResult] = await connection.query(
           'INSERT INTO exam_questions (exam_id, question_bank_id, marks, question_order) VALUES (?, ?, ?, ?)',
-          [id, questionResult.insertId, marks || 1, orderRow.next_order]
+          [id, questionResult.insertId, normalizedMarks, orderRow.next_order]
         );
         
         await connection.commit();

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 import authRoutes from './routes/auth.js';
@@ -21,9 +22,14 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const recordingsDir = path.join(__dirname, '../storage/recordings');
+
+if (!fs.existsSync(recordingsDir)) {
+  fs.mkdirSync(recordingsDir, { recursive: true });
+}
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -38,6 +44,7 @@ app.use('/api/dashboard', dashboardRoutes);
 
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/recordings', express.static(recordingsDir));
 
 // SPA fallback - serve index.html for non-API routes
 app.get('*', (req, res) => {

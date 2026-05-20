@@ -60,11 +60,13 @@ export const getFacultyDashboard = async (req, res) => {
     const [performanceData] = await pool.query(`
       SELECT 
         e.title,
-        AVG(sa.score) as avg_score
+        e.total_marks,
+        AVG(sa.score) as avg_score,
+        AVG(CASE WHEN e.total_marks > 0 THEN (sa.score / e.total_marks) * 100 ELSE 0 END) as avg_score_percent
       FROM exams e 
       JOIN student_attempts sa ON e.id = sa.exam_id
       WHERE e.created_by = ?
-      GROUP BY e.id, e.title
+      GROUP BY e.id, e.title, e.total_marks
     `, [facultyId]);
 
     // Get risk distribution

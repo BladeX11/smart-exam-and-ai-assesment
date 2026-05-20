@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS question_bank (
   option_c TEXT, option_d TEXT,
   correct_answer TEXT CHECK(correct_answer IN ('A','B','C','D')),
   question_type TEXT CHECK(question_type IN ('mcq','long_answer')),
+  sample_answer TEXT,
+  grading_keywords TEXT,
   difficulty TEXT CHECK(difficulty IN ('easy','medium','hard')) NOT NULL,
   marks INT DEFAULT 1,
   version INT DEFAULT 1,

@@ -44,13 +44,14 @@ Return JSON only:
 const getRuleBasedFallback = (data) => {
   const patterns = [];
   let prob = 0;
+  const violations = data.violations || {};
   
   if (data.score_percentage > 85 && data.time_ratio < 0.4) {
     patterns.push({ pattern_name: 'Speed Anomaly', evidence: 'High score in very short time', severity: 'high' });
     prob += 40;
   }
   
-  if (data.tab_switches > 5 || data.face_violations > 5) {
+  if ((violations.tab_switches || 0) > 5 || (violations.face_violations || 0) > 5) {
     patterns.push({ pattern_name: 'High Violations', evidence: 'Multiple proctoring alerts', severity: 'medium' });
     prob += 30;
   }

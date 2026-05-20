@@ -16,6 +16,7 @@
         .badge-medium { background-color: #fef3c7; color: #b45309; }
         .badge-high { background-color: #fee2e2; color: #b91c1c; }
         .ati-bar { height: 4px; border-radius: 2px; }
+        .primary-btn { background-color: #135bec; }
     </style>
 </head>
 <body class="flex h-screen overflow-hidden">
@@ -92,13 +93,15 @@
         function startActivityFeed() {
             setInterval(async () => {
                 try {
-                    const attempts = await api.exams.getAttempts(examId);
                     const feed = document.getElementById('activityFeed');
-                    
-                    // Get recent activities (simulated for demo)
-                    const activities = await getRecentActivities(attempts);
+                    const activities = await api.exams.getActivity(examId, 50);
                     
                     feed.innerHTML = '';
+                    if (!activities.length) {
+                        feed.innerHTML = '<div class="text-sm text-slate-400 text-center py-8">No activity has been recorded for this exam yet.</div>';
+                        return;
+                    }
+
                     activities.slice(0, 20).forEach(activity => {
                         const div = document.createElement('div');
                         const severityColors = {
@@ -113,9 +116,9 @@
                         div.innerHTML = `
                             <div class="flex justify-between items-start mb-2">
                                 <div class="flex-1">
-                                    <p class="text-xs font-bold text-slate-400 uppercase mb-1">${activity.type.replace('_', ' ')}</p>
+                                    <p class="text-xs font-bold text-slate-400 uppercase mb-1">${formatActivityLabel(activity.activity_type)}</p>
                                     <p class="text-sm">${activity.description}</p>
-                                    <p class="text-xs text-slate-400">${activity.student} • ${activity.time}</p>
+                                    <p class="text-xs text-slate-400">${activity.student_name} • ${formatTimestamp(activity.timestamp)}</p>
                                 </div>
                                 ${activity.severity === 'critical' ? '<span class="material-symbols-outlined text-red-500">warning</span>' : ''}
                             </div>
@@ -126,60 +129,6 @@
                     console.error('Activity feed error:', error);
                 }
             }, 3000); // Update every 3 seconds
-        }
-
-        async function getRecentActivities(attempts) {
-            const activities = [];
-            const now = new Date();
-            
-            attempts.forEach(attempt => {
-                // Simulate recent activities based on violations
-                if (attempt.tab_switches > 0) {
-                    activities.push({
-                        type: 'tab_switch',
-                        description: `Student switched tabs ${attempt.tab_switches} times`,
-                        student: attempt.student_name,
-                        severity: attempt.tab_switches > 3 ? 'critical' : 'warning',
-                        time: '2 min ago'
-                    });
-                }
-                
-                if (attempt.face_violations > 0) {
-                    activities.push({
-                        type: 'face_not_detected',
-                        description: `Face not detected ${attempt.face_violations} times`,
-                        student: attempt.student_name,
-                        severity: attempt.face_violations > 5 ? 'critical' : 'warning',
-                        time: '5 min ago'
-                    });
-                }
-                
-                if (attempt.voice_violations > 0) {
-                    activities.push({
-                        type: 'voice_detected',
-                        description: `Voice activity detected ${attempt.voice_violations} times`,
-                        student: attempt.student_name,
-                        severity: 'warning',
-                        time: '1 min ago'
-                    });
-                }
-                
-                // Add normal activities
-                if (attempt.status === 'in_progress') {
-                    activities.push({
-                        type: 'exam_active',
-                        description: 'Student is actively taking exam',
-                        student: attempt.student_name,
-                        severity: 'info',
-                        time: 'Just now'
-                    });
-                }
-            });
-            
-            return activities.sort((a, b) => {
-                const severityOrder = { 'critical': 3, 'warning': 2, 'info': 1 };
-                return (severityOrder[b.severity] || 0) - (severityOrder[a.severity] || 0);
-            });
         }
 
         async function fetchAttempts() {
@@ -314,6 +263,25 @@
 
         function openChat(studentId) {
             window.location.href = `/faculty-messages.html?examId=${examId}&studentId=${studentId}`;
+        }
+
+        function formatActivityLabel(type) {
+            return (type || 'activity').replace(/_/g, ' ');
+        }
+
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            if (Number.isNaN(date.getTime())) return 'Unknown time';
+
+            const diffMs = Date.now() - date.getTime();
+            const diffMinutes = Math.floor(diffMs / 60000);
+            if (diffMinutes <= 0) return 'Just now';
+            if (diffMinutes < 60) return `${diffMinutes} min ago`;
+
+            const diffHours = Math.floor(diffMinutes / 60);
+            if (diffHours < 24) return `${diffHours} hr ago`;
+
+            return date.toLocaleString();
         }
 
         function showToast(msg, type = 'info') {

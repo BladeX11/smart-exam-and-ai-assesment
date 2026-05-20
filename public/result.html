@@ -16,6 +16,12 @@
         .badge-low { background-color: #dcfce7; color: #15803d; }
         .badge-medium { background-color: #fef3c7; color: #b45309; }
         .badge-high { background-color: #fee2e2; color: #b91c1c; }
+        .topic-card { border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1rem; background: #f8fafc; }
+        @media print {
+            body { background: white; padding: 0; }
+            .card { border: 1px solid #cbd5e1; box-shadow: none; break-inside: avoid; }
+            button { display: none !important; }
+        }
     </style>
 </head>
 <body class="min-h-screen py-12 px-4">
@@ -103,7 +109,7 @@
                 <h3 class="text-2xl font-bold text-slate-800 flex items-center gap-3">
                     <span class="material-symbols-outlined text-[#135bec] text-3xl">psychology</span> AI Personalized Study Plan
                 </h3>
-                <button class="text-sm font-bold text-[#135bec] hover:underline">Download PDF Report</button>
+                <button onclick="downloadReport()" class="text-sm font-bold text-[#135bec] hover:underline">Download PDF Report</button>
             </div>
 
             <div id="aiLoading" class="py-20 text-center">
@@ -129,6 +135,22 @@
                             <!-- Study plan items -->
                         </div>
                     </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-400 uppercase mb-4">Topic Mastery Map</h4>
+                        <div id="topicMastery" class="space-y-4"></div>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-400 uppercase mb-4">Next 7 Days</h4>
+                        <div id="dailyPlan" class="space-y-3"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="text-sm font-bold text-slate-400 uppercase mb-4">Question Review Path</h4>
+                    <div id="questionReview" class="space-y-3"></div>
                 </div>
             </div>
         </div>
@@ -224,6 +246,12 @@
                     await api.ai.saveReport(attemptId, report);
                 }
 
+                if (!report.study_plan) {
+                    const studyPlan = await api.ai.getStudyPlan(attemptId);
+                    report.study_plan = studyPlan.study_plan;
+                    await api.ai.saveReport(attemptId, { study_plan: studyPlan.study_plan });
+                }
+
                 document.getElementById('aiLoading').classList.add('hidden');
                 document.getElementById('aiContent').classList.remove('hidden');
 
@@ -240,7 +268,24 @@
                 const topicList = document.getElementById('topicList');
                 topicList.innerHTML = '';
                 
-                if (plan && plan.weak_areas && plan.strong_areas) {
+                if (plan && Array.isArray(plan.topic_breakdown) && plan.topic_breakdown.length) {
+                    plan.topic_breakdown.slice(0, 6).forEach(t => {
+                        const color = t.accuracy >= 80 ? 'emerald' : (t.accuracy >= 60 ? 'amber' : 'red');
+                        const status = t.accuracy >= 80 ? 'strong' : (t.accuracy >= 60 ? 'improving' : 'weak');
+                        const div = document.createElement('div');
+                        div.innerHTML = `
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-bold text-slate-700">${t.topic}</span>
+                                <span class="text-xs font-bold text-${color}-600 uppercase">${status}</span>
+                            </div>
+                            <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div class="h-full bg-${color}-500" style="width: ${t.accuracy}%"></div>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-1">${t.correct}/${t.total} correct • ${t.earned_marks}/${t.total_marks} marks</p>
+                        `;
+                        topicList.appendChild(div);
+                    });
+                } else if (plan && plan.weak_areas && plan.strong_areas) {
                     const allAreas = [
                         ...plan.weak_areas.map(area => ({ topic: area, status: 'weak', score: 30 })),
                         ...plan.strong_areas.map(area => ({ topic: area, status: 'strong', score: 85 }))
@@ -261,6 +306,10 @@
                         topicList.appendChild(div);
                     });
                 }
+
+                renderTopicMastery(plan);
+                renderDailyPlan(plan);
+                renderQuestionReview(plan);
 
                 // Display study plan
                 const studyPlan = document.getElementById('studyPlan');
@@ -316,6 +365,104 @@
                     }
                 };
             }
+        }
+
+        function downloadReport() {
+            try {
+                document.title = `SmartAssess_Report_Attempt_${attemptId}`;
+                window.print();
+            } catch (error) {
+                console.error('Download/print failed:', error);
+                alert('Unable to open the print dialog for the PDF report.');
+            }
+        }
+
+        function renderTopicMastery(plan) {
+            const container = document.getElementById('topicMastery');
+            container.innerHTML = '';
+
+            if (!plan || !Array.isArray(plan.topic_breakdown) || !plan.topic_breakdown.length) {
+                container.innerHTML = '<p class="text-sm text-slate-400">Detailed topic insights are not available yet.</p>';
+                return;
+            }
+
+            plan.topic_breakdown.slice(0, 6).forEach(topic => {
+                const colorClass = topic.priority === 'high' ? 'text-red-600' : topic.priority === 'medium' ? 'text-amber-600' : 'text-emerald-600';
+                const div = document.createElement('div');
+                div.className = 'topic-card';
+                div.innerHTML = `
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                            <p class="text-sm font-bold text-slate-800">${topic.topic}</p>
+                            <p class="text-xs text-slate-500">${topic.correct}/${topic.total} correct • ${topic.accuracy}% accuracy</p>
+                        </div>
+                        <span class="text-xs font-bold uppercase ${colorClass}">${topic.priority} priority</span>
+                    </div>
+                    <p class="text-sm text-slate-600 mb-3">${topic.focus_reason || ''}</p>
+                    <div class="space-y-1">
+                        ${(topic.action_items || []).slice(0, 3).map(item => `<p class="text-xs text-slate-500">• ${item}</p>`).join('')}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function renderDailyPlan(plan) {
+            const container = document.getElementById('dailyPlan');
+            container.innerHTML = '';
+
+            if (!plan || !Array.isArray(plan.daily_plan) || !plan.daily_plan.length) {
+                container.innerHTML = '<p class="text-sm text-slate-400">No daily plan available yet.</p>';
+                return;
+            }
+
+            plan.daily_plan.slice(0, 7).forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'flex gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100';
+                div.innerHTML = `
+                    <div class="w-14 h-14 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-[11px] font-bold text-slate-500">
+                        ${item.day || 'Day'}
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-bold text-slate-800 mb-1">${item.focus || 'Focused revision'}</p>
+                        <div class="space-y-1">
+                            ${(item.tasks || []).slice(0, 3).map(task => `<p class="text-xs text-slate-500">• ${task}</p>`).join('')}
+                        </div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function renderQuestionReview(plan) {
+            const container = document.getElementById('questionReview');
+            container.innerHTML = '';
+
+            if (!plan || !Array.isArray(plan.question_review) || !plan.question_review.length) {
+                container.innerHTML = '<p class="text-sm text-slate-400">No question-level review available.</p>';
+                return;
+            }
+
+            plan.question_review.slice(0, 10).forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'p-4 rounded-2xl border border-red-100 bg-red-50';
+                div.innerHTML = `
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                            <p class="text-sm font-bold text-slate-800">Question ${index + 1}: ${item.topic || 'General'}</p>
+                            <p class="text-xs text-slate-500">${item.difficulty || 'medium'} • ${item.marks || 1} marks</p>
+                        </div>
+                        <span class="text-xs font-bold uppercase text-red-600">Review</span>
+                    </div>
+                    <p class="text-sm text-slate-700 mb-3">${item.question || ''}</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <p class="text-slate-600"><span class="font-bold">Your answer:</span> ${item.your_answer || 'Not answered'}</p>
+                        <p class="text-slate-600"><span class="font-bold">Correct answer:</span> ${item.correct_answer || '-'}</p>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-3">${item.learning_note || ''}</p>
+                `;
+                container.appendChild(div);
+            });
         }
 
         window.onload = loadResults;
