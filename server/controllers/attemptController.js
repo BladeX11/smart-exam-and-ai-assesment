@@ -152,6 +152,25 @@ export const submitAttempt = async (req, res) => {
     const [attempts] = await pool.query('SELECT * FROM student_attempts WHERE id = ?', [id]);
     if (attempts.length === 0) return res.status(404).json({ error: 'Attempt not found' });
     const attempt = attempts[0];
+
+    const isOwner = Number(attempt.student_id) === Number(req.user.id);
+    const isFaculty = req.user.role === 'faculty';
+    const isForceEndRequest = !!force_reason;
+
+    // Students can submit their own attempt. Faculty can only force-end.
+    if (!isOwner && !(isFaculty && isForceEndRequest)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Idempotent behavior: if already finalized, return success so client can redirect.
+    if (attempt.status === 'submitted' || attempt.status === 'force_ended') {
+      return res.json({
+        success: true,
+        score: attempt.score ?? 0,
+        atiScore: attempt.ati_score ?? 100,
+        status: attempt.status
+      });
+    }
     
     // Calculate score
     const [questions] = await pool.query(`
@@ -205,7 +224,7 @@ export const submitAttempt = async (req, res) => {
         : 1;
     const scorePercentage = exam?.total_marks ? (score / exam.total_marks) * 100 : 0;
 
-    const cheatReport = await analyzeCheatPattern({
+    const cheatInput = {
       attempt_id: attempt.id,
       student_id: attempt.student_id,
       exam_id: attempt.exam_id,
@@ -229,8 +248,41 @@ export const submitAttempt = async (req, res) => {
         internet_disconnects: attempt.internet_disconnects || 0
       },
       ati_score: atiScore,
-      ati_risk_level: riskLevel
-    });
+      ati_risk_level: riskLevel,
+      tab_switches: attempt.tab_switches || 0,
+      face_violations: attempt.face_violations || 0
+    };
+
+    let cheatReport = {
+      cheat_probability: 0,
+      verdict: 'clean',
+      patterns_detected: [],
+      statistical_anomalies: [],
+      faculty_recommendation: 'No immediate action',
+      confidence_level: 'low'
+    };
+
+    try {
+      cheatReport = await Promise.race([
+        analyzeCheatPattern(cheatInput),
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                cheat_probability: 0,
+                verdict: 'clean',
+                patterns_detected: [],
+                statistical_anomalies: ['AI timeout fallback'],
+                faculty_recommendation: 'Manual review if needed',
+                confidence_level: 'low'
+              }),
+            1500
+          )
+        )
+      ]);
+    } catch (analysisError) {
+      console.error('Cheat analysis failed, using safe fallback:', analysisError);
+    }
 
     const cheatProbability = Number.isFinite(cheatReport?.cheat_probability) ? cheatReport.cheat_probability : 0;
     const anomalyDetected = cheatReport?.verdict ? cheatReport.verdict !== 'clean' : cheatProbability >= 60;
@@ -248,73 +300,84 @@ export const submitAttempt = async (req, res) => {
       ]
     );
 
-    // Update risk profile
-    const isFlagged = (riskLevel === 'high') || isForceEnded || violationCount >= 15;
-    const forceEndedInc = isForceEnded ? 1 : 0;
-    const flaggedInc = isFlagged ? 1 : 0;
+    // Non-critical analytics writes should never block exam submission success.
+    try {
+      // Ensure profile exists (older data may miss this row).
+      await pool.query(
+        'INSERT IGNORE INTO student_risk_profiles (student_id, overall_risk) VALUES (?, ?)',
+        [attempt.student_id, 'clean']
+      );
 
-    await pool.query(
-      `UPDATE student_risk_profiles SET
-        total_exams = total_exams + 1,
-        total_flagged_exams = total_flagged_exams + ?,
-        total_force_ended = total_force_ended + ?,
-        total_tab_switches = total_tab_switches + ?,
-        total_face_violations = total_face_violations + ?,
-        total_voice_violations = total_voice_violations + ?,
-        total_object_violations = total_object_violations + ?,
-        total_copy_attempts = total_copy_attempts + ?,
-        overall_risk = CASE
-          WHEN (total_force_ended + ?) >= 2 OR (total_flagged_exams + ?) >= 3 THEN 'repeat_offender'
-          WHEN (total_force_ended + ?) >= 1 OR (total_flagged_exams + ?) >= 1 THEN 'watchlist'
-          ELSE 'clean'
-        END,
-        last_updated = CURRENT_TIMESTAMP
-      WHERE student_id = ?`,
-      [
-        flaggedInc,
-        forceEndedInc,
-        attempt.tab_switches || 0,
-        attempt.face_violations || 0,
-        attempt.voice_violations || 0,
-        attempt.object_violations || 0,
-        attempt.copy_paste_attempts || 0,
-        forceEndedInc, flaggedInc,
-        forceEndedInc, flaggedInc,
-        attempt.student_id
-      ]
-    );
+      // Update risk profile
+      const isFlagged = (riskLevel === 'high') || isForceEnded || violationCount >= 15;
+      const forceEndedInc = isForceEnded ? 1 : 0;
+      const flaggedInc = isFlagged ? 1 : 0;
 
-    // Keep legacy user stats in sync (used in some places/UI)
-    await pool.query(
-      `UPDATE users SET
-        total_exams_taken = total_exams_taken + 1,
-        total_violations = total_violations + ?,
-        risk_level = (SELECT overall_risk FROM student_risk_profiles WHERE student_id = ?)
-      WHERE id = ?`,
-      [violationCount, attempt.student_id, attempt.student_id]
-    );
+      await pool.query(
+        `UPDATE student_risk_profiles SET
+          total_exams = total_exams + 1,
+          total_flagged_exams = total_flagged_exams + ?,
+          total_force_ended = total_force_ended + ?,
+          total_tab_switches = total_tab_switches + ?,
+          total_face_violations = total_face_violations + ?,
+          total_voice_violations = total_voice_violations + ?,
+          total_object_violations = total_object_violations + ?,
+          total_copy_attempts = total_copy_attempts + ?,
+          overall_risk = CASE
+            WHEN (total_force_ended + ?) >= 2 OR (total_flagged_exams + ?) >= 3 THEN 'repeat_offender'
+            WHEN (total_force_ended + ?) >= 1 OR (total_flagged_exams + ?) >= 1 THEN 'watchlist'
+            ELSE 'clean'
+          END,
+          last_updated = CURRENT_TIMESTAMP
+        WHERE student_id = ?`,
+        [
+          flaggedInc,
+          forceEndedInc,
+          attempt.tab_switches || 0,
+          attempt.face_violations || 0,
+          attempt.voice_violations || 0,
+          attempt.object_violations || 0,
+          attempt.copy_paste_attempts || 0,
+          forceEndedInc, flaggedInc,
+          forceEndedInc, flaggedInc,
+          attempt.student_id
+        ]
+      );
 
-    // Save/merge AI cheat-pattern report (study plan can still be added later by client)
-    await pool.query(
-      `INSERT INTO ai_assessments (attempt_id, risk_score, anomaly_detected, cheat_pattern_report, behavior_flags, statistical_analysis, performance_summary)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         risk_score = COALESCE(VALUES(risk_score), risk_score),
-         anomaly_detected = COALESCE(VALUES(anomaly_detected), anomaly_detected),
-         cheat_pattern_report = COALESCE(VALUES(cheat_pattern_report), cheat_pattern_report),
-         behavior_flags = COALESCE(VALUES(behavior_flags), behavior_flags),
-         statistical_analysis = COALESCE(VALUES(statistical_analysis), statistical_analysis),
-         performance_summary = COALESCE(VALUES(performance_summary), performance_summary)`,
-      [
-        attempt.id,
-        cheatProbability,
-        anomalyDetected ? 1 : 0,
-        JSON.stringify(cheatReport),
-        JSON.stringify(cheatReport?.patterns_detected ?? []),
-        JSON.stringify(cheatReport?.statistical_anomalies ?? []),
-        JSON.stringify({ score, score_percentage: scorePercentage, ati_score: atiScore, risk_level: riskLevel, violation_count: violationCount })
-      ]
-    );
+      // Keep legacy user stats in sync (used in some places/UI)
+      await pool.query(
+        `UPDATE users SET
+          total_exams_taken = total_exams_taken + 1,
+          total_violations = total_violations + ?,
+          risk_level = (SELECT overall_risk FROM student_risk_profiles WHERE student_id = ?)
+        WHERE id = ?`,
+        [violationCount, attempt.student_id, attempt.student_id]
+      );
+
+      // Save/merge AI cheat-pattern report (study plan can still be added later by client)
+      await pool.query(
+        `INSERT INTO ai_assessments (attempt_id, risk_score, anomaly_detected, cheat_pattern_report, behavior_flags, statistical_analysis, performance_summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           risk_score = COALESCE(VALUES(risk_score), risk_score),
+           anomaly_detected = COALESCE(VALUES(anomaly_detected), anomaly_detected),
+           cheat_pattern_report = COALESCE(VALUES(cheat_pattern_report), cheat_pattern_report),
+           behavior_flags = COALESCE(VALUES(behavior_flags), behavior_flags),
+           statistical_analysis = COALESCE(VALUES(statistical_analysis), statistical_analysis),
+           performance_summary = COALESCE(VALUES(performance_summary), performance_summary)`,
+        [
+          attempt.id,
+          cheatProbability,
+          anomalyDetected ? 1 : 0,
+          JSON.stringify(cheatReport),
+          JSON.stringify(cheatReport?.patterns_detected ?? []),
+          JSON.stringify(cheatReport?.statistical_anomalies ?? []),
+          JSON.stringify({ score, score_percentage: scorePercentage, ati_score: atiScore, risk_level: riskLevel, violation_count: violationCount })
+        ]
+      );
+    } catch (postSubmitError) {
+      console.error('Post-submit analytics update failed (non-blocking):', postSubmitError);
+    }
 
     res.json({ success: true, score, atiScore });
   } catch (error) {

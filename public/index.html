@@ -123,9 +123,23 @@
 
         // Check if already logged in
         window.onload = () => {
-            const user = JSON.parse(localStorage.getItem('user'));
-            if (user) {
+            const token = localStorage.getItem('token');
+            let user = null;
+            try {
+                user = JSON.parse(localStorage.getItem('user') || 'null');
+            } catch (_) {
+                user = null;
+            }
+
+            if (token && user) {
                 window.location.href = user.role === 'faculty' ? '/faculty-dashboard.html' : '/student-dashboard.html';
+                return;
+            }
+
+            // Clean up partial/stale session values.
+            if (!token || !user) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
             }
         };
     </script>

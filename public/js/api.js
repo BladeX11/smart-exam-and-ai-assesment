@@ -1,8 +1,9 @@
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000/api' : '/api';
+const API_BASE = '/api';
 
 const api = {
   async request(endpoint, options = {}) {
     const token = localStorage.getItem('token');
+    const isPublicAuthEndpoint = endpoint === '/auth/login' || endpoint === '/auth/register';
     const headers = {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
@@ -14,12 +15,18 @@ const api = {
       
       // Handle 401 - token expired/invalid → logout
       if (response.status === 401) {
+        const errorData = await response.json().catch(() => ({}));
+
+        if (isPublicAuthEndpoint) {
+          throw new Error(errorData.error || 'Invalid credentials');
+        }
+
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         if (!window.location.pathname.includes('index.html') && window.location.pathname !== '/') {
           window.location.href = '/index.html';
         }
-        throw new Error('Session expired. Please login again.');
+        throw new Error(errorData.error || 'Session expired. Please login again.');
       }
 
       // Handle 403 - access denied (don't logout, just show error)

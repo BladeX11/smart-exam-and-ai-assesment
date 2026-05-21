@@ -100,8 +100,10 @@
         async function loadDashboard() {
             try {
                 const profile = await api.auth.getProfile();
+                const atiValue = Number(profile.ati_score);
+                const safeAti = Number.isFinite(atiValue) ? Math.round(atiValue) : 100;
                 document.getElementById('totalExams').textContent = profile.total_exams_taken || 0;
-                document.getElementById('integrityScore').textContent = (profile.ati_score || 100) + '%';
+                document.getElementById('integrityScore').textContent = safeAti + '%';
                 document.getElementById('riskLevel').textContent = (profile.risk_level || 'clean').charAt(0).toUpperCase() + (profile.risk_level || 'clean').slice(1);
                 
                 const exams = await api.exams.getAll();

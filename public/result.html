@@ -146,10 +146,18 @@
                 const attemptFull = await api.attempts.getStatus(attemptId);
                 
                 // Update UI
-                document.getElementById('scoreText').textContent = Math.round(attemptFull.score || 0);
-                document.getElementById('totalMarks').textContent = `/ ${attemptFull.total_marks || 100}`;
-                document.getElementById('atiScore').textContent = `${Math.round(attemptFull.ati_score || 100)}%`;
-                document.getElementById('atiBar').style.width = `${attemptFull.ati_score || 100}%`;
+                const scoreValue = Number(attemptFull.score);
+                const totalMarksValue = Number(attemptFull.total_marks);
+                const atiValue = Number(attemptFull.ati_score);
+
+                const safeScore = Number.isFinite(scoreValue) ? scoreValue : 0;
+                const safeTotalMarks = Number.isFinite(totalMarksValue) ? totalMarksValue : 100;
+                const safeAti = Number.isFinite(atiValue) ? atiValue : 100;
+
+                document.getElementById('scoreText').textContent = Math.round(safeScore);
+                document.getElementById('totalMarks').textContent = `/ ${safeTotalMarks}`;
+                document.getElementById('atiScore').textContent = `${Math.round(safeAti)}%`;
+                document.getElementById('atiBar').style.width = `${safeAti}%`;
                 
                 const riskBadge = document.getElementById('riskBadge');
                 const risk = attemptFull.risk_level || 'low';
@@ -164,7 +172,7 @@
                 document.getElementById('copyCount').textContent = `${attemptFull.copy_paste_attempts || 0} Copy`;
 
                 // Update grade text based on score
-                const scorePercent = attemptFull.total_marks ? Math.round((attemptFull.score || 0) / attemptFull.total_marks * 100) : 0;
+                const scorePercent = safeTotalMarks ? Math.round((safeScore / safeTotalMarks) * 100) : 0;
                 const gradeText = document.getElementById('gradeText');
                 const percentileText = document.getElementById('percentileText');
                 if (scorePercent >= 90) {
@@ -190,7 +198,7 @@
                     type: 'doughnut',
                     data: {
                         datasets: [{
-                            data: [attemptFull.score || 0, (attemptFull.total_marks || 100) - (attemptFull.score || 0)],
+                            data: [safeScore, Math.max(0, safeTotalMarks - safeScore)],
                             backgroundColor: ['#135bec', '#f1f5f9'],
                             borderWidth: 0,
                             circumference: 270,

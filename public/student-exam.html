@@ -96,7 +96,7 @@
                     <p class="text-xs font-bold text-slate-400 uppercase">Time Remaining</p>
                     <p id="timer" class="text-2xl font-bold text-[#135bec]">00:00:00</p>
                 </div>
-                <button onclick="submitExam()" class="primary-btn bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200">Finish Exam</button>
+                <button id="finishExamBtn" onclick="submitExam()" class="primary-btn bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200">Finish Exam</button>
             </div>
         </header>
 
@@ -234,6 +234,7 @@
         let audioAnalyser = null;
         let voiceViolationCount = 0;
         let faceViolationCount = 0;
+        let isSubmittingExam = false;
 
         function freezeTimer() {
             if (timerFrozen) return;
@@ -600,13 +601,27 @@
         }
 
         async function submitExam(isAuto = false) {
-            if (!isAuto && !confirm('Are you sure you want to submit your exam? You cannot change your answers after this.')) return;
-            
+            if (isSubmittingExam) return;
+
+            isSubmittingExam = true;
+            const finishBtn = document.getElementById('finishExamBtn');
+            if (finishBtn) {
+                finishBtn.disabled = true;
+                finishBtn.textContent = 'Submitting...';
+                finishBtn.classList.add('opacity-70', 'cursor-not-allowed');
+            }
+
             try {
-                await api.attempts.submit(attemptId);
+                await api.attempts.submit(attemptId, {});
                 window.location.href = `/result.html?id=${attemptId}`;
             } catch (err) {
                 showToast(err.message, 'error');
+                isSubmittingExam = false;
+                if (finishBtn) {
+                    finishBtn.disabled = false;
+                    finishBtn.textContent = 'Finish Exam';
+                    finishBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
             }
         }
 
@@ -723,7 +738,7 @@
                     faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
                     faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL)
                 ]);
-                startFaceDetection();
+                startFaceDetectionSafe();
             } catch (err) {
                 console.error('Face detection models failed to load:', err);
                 showToast('Face detection unavailable', 'warning');
@@ -872,6 +887,180 @@
             }, 800);
         }
 
+        function startFaceDetectionSafe() {
+            const video = document.getElementById('webcam');
+            const faceStatus = document.getElementById('faceStatus');
+            const container = document.getElementById('webcam-container');
+
+            let consecutiveNoFace = 0;
+            let consecutiveSameGaze = 0;
+            let totalGazeViolations = 0;
+            let totalFaceTurnViolations = 0;
+            let lastGazeDirection = null;
+            let consecutiveMultiFace = 0;
+            let multiPersonWarnings = 0;
+
+            const FACE_DETECTION_INTERVAL_MS = 1000;
+            const NO_FACE_WARNING_STREAK = 4;
+            const NO_FACE_REPEAT_EVERY = 4;
+            const NO_FACE_FORCE_END_LIMIT = 6;
+            const GAZE_WARNING_STREAK = 3;
+            const GAZE_FORCE_END_LIMIT = 6;
+            const GAZE_LOG_COOLDOWN_MS = 5000;
+            const FACE_LOG_COOLDOWN_MS = 6000;
+            const CALIBRATION_FRAMES = 6;
+
+            let baselineFaceX = 0.5;
+            let baselineFaceY = 0.5;
+            let baselineSamples = 0;
+            let gazeLogCooldownUntil = 0;
+            let faceLogCooldownUntil = 0;
+
+            faceDetectionInterval = setInterval(async () => {
+                try {
+                    const detections = await faceapi.detectAllFaces(
+                        video,
+                        new faceapi.TinyFaceDetectorOptions({
+                            inputSize: 416,
+                            scoreThreshold: 0.35
+                        })
+                    ).withFaceLandmarks();
+
+                    if (detections.length === 0) {
+                        consecutiveNoFace++;
+                        consecutiveMultiFace = 0;
+                        consecutiveSameGaze = 0;
+                        lastGazeDirection = null;
+                        faceStatus.className = 'status-dot dot-red';
+                        container.className = 'mb-4 border-2 border-red-500 transition-colors duration-300';
+
+                        const shouldWarnFirst = consecutiveNoFace === NO_FACE_WARNING_STREAK;
+                        const shouldWarnRepeat =
+                            consecutiveNoFace > NO_FACE_WARNING_STREAK &&
+                            (consecutiveNoFace - NO_FACE_WARNING_STREAK) % NO_FACE_REPEAT_EVERY === 0;
+                        const now = Date.now();
+
+                        if ((shouldWarnFirst || shouldWarnRepeat) && now >= faceLogCooldownUntil) {
+                            totalFaceTurnViolations++;
+                            faceLogCooldownUntil = now + FACE_LOG_COOLDOWN_MS;
+                            const severity = totalFaceTurnViolations >= NO_FACE_FORCE_END_LIMIT - 2 ? 'critical' : 'warning';
+
+                            await logViolation(
+                                'face_not_detected',
+                                `Face not visible for several seconds (${totalFaceTurnViolations}/${NO_FACE_FORCE_END_LIMIT})`,
+                                severity
+                            );
+                            showToast(
+                                `Face not detected clearly. Please face the camera (${totalFaceTurnViolations}/${NO_FACE_FORCE_END_LIMIT})`,
+                                'warning'
+                            );
+                        }
+
+                        if (totalFaceTurnViolations >= NO_FACE_FORCE_END_LIMIT) {
+                            await forceEndExam('Repeatedly not facing the camera');
+                        }
+                        return;
+                    }
+
+                    if (detections.length > 1) {
+                        consecutiveNoFace = 0;
+                        consecutiveMultiFace++;
+                        faceStatus.className = 'status-dot dot-red';
+                        container.className = 'mb-4 border-2 border-red-500 transition-colors duration-300';
+
+                        if (consecutiveMultiFace >= 2) {
+                            multiPersonWarnings++;
+                            await logViolation('multiple_faces', `Multiple persons detected (warning ${multiPersonWarnings}/3)`, 'critical');
+                            showToast(`Multiple persons detected (${multiPersonWarnings}/3)`, 'error');
+                            consecutiveMultiFace = 0;
+
+                            if (multiPersonWarnings >= 3) {
+                                await forceEndExam('Multiple persons detected repeatedly');
+                            }
+                        }
+                        return;
+                    }
+
+                    consecutiveNoFace = 0;
+                    consecutiveMultiFace = 0;
+                    faceStatus.className = 'status-dot dot-green';
+                    container.className = 'mb-4 border-2 border-emerald-500 transition-colors duration-300';
+
+                    const detection = detections[0];
+                    const landmarks = detection.landmarks;
+                    const box = detection.detection.box;
+
+                    const videoWidth = video.videoWidth || 640;
+                    const videoHeight = video.videoHeight || 480;
+                    const faceCenterX = box.x + box.width / 2;
+                    const faceCenterY = box.y + box.height / 2;
+                    const faceRelativeX = faceCenterX / videoWidth;
+                    const faceRelativeY = faceCenterY / videoHeight;
+
+                    if (baselineSamples < CALIBRATION_FRAMES) {
+                        baselineFaceX = ((baselineFaceX * baselineSamples) + faceRelativeX) / (baselineSamples + 1);
+                        baselineFaceY = ((baselineFaceY * baselineSamples) + faceRelativeY) / (baselineSamples + 1);
+                        baselineSamples++;
+                        consecutiveSameGaze = 0;
+                        lastGazeDirection = null;
+                        return;
+                    }
+
+                    const faceAspect = box.width / box.height;
+                    const nose = landmarks.getNose();
+                    let noseOffCenter = false;
+                    if (nose && nose.length > 3) {
+                        const noseTip = nose[3];
+                        const noseRelX = (noseTip.x - box.x) / box.width;
+                        noseOffCenter = noseRelX < 0.28 || noseRelX > 0.72;
+                    }
+
+                    const leftBoundary = Math.max(0.18, baselineFaceX - 0.18);
+                    const rightBoundary = Math.min(0.82, baselineFaceX + 0.18);
+                    const topBoundary = Math.max(0.16, baselineFaceY - 0.22);
+                    const bottomBoundary = Math.min(0.84, baselineFaceY + 0.22);
+
+                    let headDirection = 'center';
+                    if (faceRelativeX < leftBoundary || faceRelativeX > rightBoundary) headDirection = 'side';
+                    else if (faceRelativeY < topBoundary) headDirection = 'up';
+                    else if (faceRelativeY > bottomBoundary) headDirection = 'down';
+                    else if (faceAspect < 0.64) headDirection = 'side';
+                    else if (noseOffCenter) headDirection = 'side';
+
+                    if (headDirection !== 'center') {
+                        if (lastGazeDirection === headDirection) {
+                            consecutiveSameGaze++;
+                        } else {
+                            consecutiveSameGaze = 1;
+                        }
+                        lastGazeDirection = headDirection;
+
+                        const now = Date.now();
+                        if (consecutiveSameGaze >= GAZE_WARNING_STREAK && now >= gazeLogCooldownUntil) {
+                            totalGazeViolations++;
+                            gazeLogCooldownUntil = now + GAZE_LOG_COOLDOWN_MS;
+
+                            const message = `Looking away from screen detected (${totalGazeViolations}/${GAZE_FORCE_END_LIMIT})`;
+                            await logViolation('gaze_violation', message, 'warning');
+                            showToast(`Please keep your face centered on screen (${totalGazeViolations}/${GAZE_FORCE_END_LIMIT})`, 'warning');
+                            consecutiveSameGaze = 0;
+
+                            if (totalGazeViolations >= GAZE_FORCE_END_LIMIT) {
+                                await forceEndExam('Excessive gaze violations - looking away from screen');
+                            }
+                        }
+                    } else {
+                        baselineFaceX = (baselineFaceX * 0.9) + (faceRelativeX * 0.1);
+                        baselineFaceY = (baselineFaceY * 0.9) + (faceRelativeY * 0.1);
+                        consecutiveSameGaze = 0;
+                        lastGazeDirection = null;
+                    }
+                } catch (error) {
+                    console.error('Face detection error:', error);
+                }
+            }, FACE_DETECTION_INTERVAL_MS);
+        }
+
         function calculateGazeDirection(landmarks) {
             // Eye landmarks indices for face-api.js
             const leftEye = landmarks.getLeftEye();
@@ -971,7 +1160,7 @@
             let ambientSum = 0;
             let ambientMax = 0;
             let calibrationSamples = 0;
-            const calibrationDuration = 6; // 6 readings = 3 seconds at 500ms interval
+            const calibrationDuration = 8; // 8 readings = 4 seconds at 500ms interval
 
             setInterval(async () => {
                 try {
@@ -990,16 +1179,16 @@
                         return;
                     }
 
-                    // Use dynamic threshold: average ambient + buffer, minimum 58
+                    // Use dynamic threshold: average ambient + buffer, minimum baseline
                     const ambientAvg = ambientSum / calibrationDuration;
-                    const voiceThreshold = Math.max(58, ambientAvg + 25);
+                    const voiceThreshold = Math.max(34, ambientAvg + 12);
                     
                     if (avg > voiceThreshold) {
                         consecutiveHighVolume++;
                         voiceStatus.className = 'status-dot dot-amber';
                         
-                        // Log violation after 8 consecutive readings (4 seconds of sustained speech)
-                        if (consecutiveHighVolume >= 8) {
+                        // Log violation after sustained speech (~2.5 seconds).
+                        if (consecutiveHighVolume >= 5) {
                             voiceViolationCount++;
                             await logViolation('voice_detected', `Speaking detected during exam (warning ${voiceViolationCount}/5)`, 'warning');
                             showVoiceWarning(voiceViolationCount);

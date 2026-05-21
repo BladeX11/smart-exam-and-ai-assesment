@@ -203,7 +203,8 @@
                 const card = document.createElement('div');
                 card.className = 'card flex flex-col';
                 const risk = s.risk_level || 'low';
-                const ati = Math.round(s.ati_score || 100);
+                const atiValue = Number(s.ati_score);
+                const ati = Number.isFinite(atiValue) ? Math.round(atiValue) : 100;
                 
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-4">
