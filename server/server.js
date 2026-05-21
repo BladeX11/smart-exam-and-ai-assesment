@@ -14,6 +14,7 @@ import messageRoutes from './routes/messages.js';
 import doubtRoutes from './routes/doubts.js';
 import riskProfileRoutes from './routes/riskProfiles.js';
 import dashboardRoutes from './routes/dashboard.js';
+import { dbReady } from './config/db.js';
 
 dotenv.config();
 
@@ -53,6 +54,16 @@ app.get('*', (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`SmartAssess AI Server running on http://localhost:${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await dbReady;
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`SmartAssess AI Server running on http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server due to database initialization error:', error.message);
+    process.exit(1);
+  }
+};
+
+startServer();

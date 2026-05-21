@@ -82,7 +82,7 @@ export const getFacultyDashboard = async (req, res) => {
         totalExams: totalExamsResult[0].count,
         activeExams: activeExamsResult[0].count,
         totalStudents: totalStudentsResult[0].count,
-        avgAtiScore: Math.round(avgAtiResult[0].avg_score || 100),
+        avgAtiScore: Math.round((avgAtiResult[0].avg_score ?? 100)),
         suspiciousCount: suspiciousResult[0].count
       },
       examsList,

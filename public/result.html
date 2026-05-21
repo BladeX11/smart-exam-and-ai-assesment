@@ -170,8 +170,8 @@
                 // Update UI
                 document.getElementById('scoreText').textContent = Math.round(attemptFull.score || 0);
                 document.getElementById('totalMarks').textContent = `/ ${attemptFull.total_marks || 100}`;
-                document.getElementById('atiScore').textContent = `${Math.round(attemptFull.ati_score || 100)}%`;
-                document.getElementById('atiBar').style.width = `${attemptFull.ati_score || 100}%`;
+                document.getElementById('atiScore').textContent = `${Math.round((attemptFull.ati_score ?? 100))}%`;
+                document.getElementById('atiBar').style.width = `${attemptFull.ati_score ?? 100}%`;
                 
                 const riskBadge = document.getElementById('riskBadge');
                 const risk = attemptFull.risk_level || 'low';

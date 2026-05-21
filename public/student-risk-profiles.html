@@ -214,7 +214,7 @@
                         <div class="grid grid-cols-2 gap-2 text-xs text-slate-500">
                             <p>Status: <span class="font-bold text-slate-700">${(attempt.status || 'unknown').replace(/_/g, ' ')}</span></p>
                             <p>Score: <span class="font-bold text-slate-700">${Math.round(attempt.score || 0)}</span></p>
-                            <p>ATI: <span class="font-bold text-slate-700">${Math.round(attempt.ati_score || 100)}%</span></p>
+                            <p>ATI: <span class="font-bold text-slate-700">${Math.round((attempt.ati_score ?? 100))}%</span></p>
                             <p>Violations: <span class="font-bold text-slate-700">${getAttemptViolationTotal(attempt)}</span></p>
                         </div>
                         ${attempt.force_end_reason ? `<p class="mt-2 text-xs text-red-600 font-medium">Force ended: ${attempt.force_end_reason}</p>` : ''}

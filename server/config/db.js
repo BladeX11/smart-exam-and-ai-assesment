@@ -45,7 +45,7 @@ const createSqliteCompat = () => {
     const normalizedSql = normalizeSql(sql);
     const statement = sqlite.prepare(normalizedSql);
 
-    if (/^\s*select/i.test(normalizedSql)) {
+    if (/^\s*(select|pragma)\b/i.test(normalizedSql)) {
       return [statement.all(...params)];
     }
 
@@ -127,8 +127,8 @@ const ensureQuestionBankColumns = async () => {
   }
 };
 
-// Test connection on startup
-(async () => {
+// Test connection and ensure schema readiness on startup
+export const dbReady = (async () => {
   try {
     const connection = await pool.getConnection();
     await connection.query('SELECT 1');
@@ -137,6 +137,7 @@ const ensureQuestionBankColumns = async () => {
     await ensureQuestionBankColumns();
   } catch (error) {
     console.error('Database connection failed:', error.message);
+    throw error;
   }
 })();
 

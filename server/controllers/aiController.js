@@ -194,18 +194,18 @@ Generate a JSON study plan with:
 {
   "study_plan": {
     "overall_assessment": "Brief assessment of performance",
-    "weak_areas": ["list of topics needing improvement"],
-    "strong_areas": ["list of well-performed topics"],
+    "weak_areas": ["topics needing improvement"],
+    "strong_areas": ["topics with good performance"],
     "recommendations": [
       {
         "topic": "topic name",
         "priority": "high|medium|low",
-        "current_accuracy": 45,
-        "target_accuracy": 75,
+        "current_accuracy": 60,
+        "target_accuracy": 80,
         "study_time_hours": 5,
+        "focus_concepts": ["exact concepts to practice"],
         "resources": ["specific study resources"],
-        "practice_exercises": ["types of practice needed"],
-        "mistakes_to_fix": ["what to correct next"]
+        "practice_exercises": ["specific practice tasks"]
       }
     ],
     "timeline": "2-4 week study timeline",
@@ -222,12 +222,75 @@ Generate a JSON study plan with:
 
 Return only valid JSON.`;
 
+    const parseAIStudyPlan = (text) => {
+      if (!text) return null;
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return null;
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (parseError) {
+        console.warn('Unable to parse AI JSON response:', parseError.message);
+        console.warn('AI response preview:', text.slice(0, 800));
+        return null;
+      }
+    };
+
+    const normalizeStudyPlanObject = (candidate) => {
+      if (!candidate || typeof candidate !== 'object') return null;
+      if (candidate.study_plan && typeof candidate.study_plan === 'object') return candidate;
+      return { study_plan: candidate };
+    };
+
+    const topicDetails = topicBreakdown.map(topic => {
+      return `${topic.topic}: ${topic.correct}/${topic.total} correct (${topic.accuracy}%), priority=${topic.priority}, difficulties=${Object.entries(topic.difficulty_breakdown).map(([level, data]) => `${level}:${data.correct}/${data.total}`).join(', ')}`;
+    }).join('\n');
+
+    const prompt = `You are an expert DSA and exam coach. Use the following exam performance data to create a detailed study plan. If the topics are DSA-related, recommend exact subtopics, core concepts, and practice tasks such as arrays, recursion, dynamic programming, graph traversal, or complexity analysis.
+
+Exam: ${attempt.exam_title}
+Score: ${attempt.score}/${attempt.total_marks} (${scorePercent}%)
+ATI Score: ${attempt.ati_score}
+
+Topic Performance:
+${topicDetails}
+
+Return only valid JSON with this structure:
+{
+  "study_plan": {
+    "overall_assessment": "Brief assessment of performance",
+    "weak_areas": ["topics needing improvement"],
+    "strong_areas": ["topics with good performance"],
+    "recommendations": [
+      {
+        "topic": "topic name",
+        "priority": "high|medium|low",
+        "current_accuracy": 60,
+        "target_accuracy": 80,
+        "study_time_hours": 5,
+        "focus_concepts": ["exact concepts to practice"],
+        "resources": ["specific study resources"],
+        "practice_exercises": ["specific practice tasks"]
+      }
+    ],
+    "timeline": "2-4 week study timeline",
+    "next_steps": ["immediate next steps"],
+    "daily_plan": [
+      {
+        "day": "Day 1",
+        "focus": "topic or objective",
+        "tasks": ["task 1", "task 2", "task 3"]
+      }
+    ]
+  }
+}
+
+Do not include any text outside the JSON object.`;
+
     let studyPlan = null;
     try {
       const aiResponse = await callClaude(prompt, 2000);
       if (aiResponse) {
-        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-        studyPlan = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        studyPlan = normalizeStudyPlanObject(parseAIStudyPlan(aiResponse));
       }
     } catch (error) {
       console.error('Failed to generate AI study plan:', error);
@@ -246,6 +309,7 @@ Return only valid JSON.`;
             current_accuracy: topic.accuracy,
             target_accuracy: topic.accuracy >= 80 ? 90 : topic.accuracy >= 60 ? 80 : 70,
             study_time_hours: topic.priority === 'high' ? 4 : topic.priority === 'medium' ? 3 : 2,
+            focus_concepts: [`Review core ${topic.topic} concepts`, `Practice the most common question patterns for ${topic.topic}`],
             resources: ['Class notes', 'Solved examples', 'Topic-wise practice set'],
             practice_exercises: ['Rework missed question types', 'Timed MCQ drills', 'Concept recap notes'],
             mistakes_to_fix: topic.action_items

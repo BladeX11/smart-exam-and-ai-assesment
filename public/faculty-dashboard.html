@@ -293,7 +293,7 @@
                                 <span class="text-sm font-medium">${result.score || 0}</span>
                             </td>
                             <td class="py-3">
-                                <span class="text-sm font-medium">${Math.round(result.ati_score || 100)}</span>
+                                <span class="text-sm font-medium">${Math.round((result.ati_score ?? 100))}</span>
                             </td>
                             <td class="py-3">
                                 <span class="badge badge-${result.risk_level || 'low'}">${(result.risk_level || 'low').toUpperCase()}</span>

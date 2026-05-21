@@ -152,14 +152,42 @@
     <!-- Right Sidebar -->
     <aside class="right-sidebar flex flex-col p-6">
         <div class="flex border-b border-slate-100 mb-6">
-            <button class="flex-1 pb-3 text-sm font-bold text-[#135bec] border-b-2 border-[#135bec]">Messages</button>
-            <button class="flex-1 pb-3 text-sm font-bold text-slate-400">Calculator</button>
+            <button id="messagesTabBtn" onclick="showMessagesTab()" class="flex-1 pb-3 text-sm font-bold text-[#135bec] border-b-2 border-[#135bec]">Messages</button>
+            <button id="calculatorTabBtn" onclick="showCalculatorTab()" class="flex-1 pb-3 text-sm font-bold text-slate-400">Calculator</button>
         </div>
 
         <div id="chatContainer" class="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
             <div class="bg-blue-50 p-3 rounded-xl">
                 <p class="text-[10px] font-bold text-[#135bec] uppercase mb-1">System</p>
                 <p class="text-xs text-slate-700">The exam has started. Please maintain silence and stay in front of the camera.</p>
+            </div>
+        </div>
+
+        <div id="calculatorContainer" class="hidden flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-bold text-slate-700">Calculator</span>
+                    <button onclick="clearCalculator()" class="text-xs text-[#135bec]">Clear</button>
+                </div>
+                <input id="calculatorDisplay" readonly value="0" class="w-full mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-xl font-semibold" />
+                <div class="grid grid-cols-4 gap-2">
+                    <button type="button" onclick="appendCalculator('7')" class="secondary-btn">7</button>
+                    <button type="button" onclick="appendCalculator('8')" class="secondary-btn">8</button>
+                    <button type="button" onclick="appendCalculator('9')" class="secondary-btn">9</button>
+                    <button type="button" onclick="appendCalculator('/')" class="secondary-btn">÷</button>
+                    <button type="button" onclick="appendCalculator('4')" class="secondary-btn">4</button>
+                    <button type="button" onclick="appendCalculator('5')" class="secondary-btn">5</button>
+                    <button type="button" onclick="appendCalculator('6')" class="secondary-btn">6</button>
+                    <button type="button" onclick="appendCalculator('*')" class="secondary-btn">×</button>
+                    <button type="button" onclick="appendCalculator('1')" class="secondary-btn">1</button>
+                    <button type="button" onclick="appendCalculator('2')" class="secondary-btn">2</button>
+                    <button type="button" onclick="appendCalculator('3')" class="secondary-btn">3</button>
+                    <button type="button" onclick="appendCalculator('-')" class="secondary-btn">−</button>
+                    <button type="button" onclick="appendCalculator('0')" class="secondary-btn col-span-2">0</button>
+                    <button type="button" onclick="appendCalculator('.')" class="secondary-btn">.</button>
+                    <button type="button" onclick="evaluateCalculator()" class="primary-btn">=</button>
+                    <button type="button" onclick="appendCalculator('+')" class="secondary-btn">+</button>
+                </div>
             </div>
         </div>
 
@@ -268,6 +296,18 @@
         let disconnectMonitorInterval = null;
         const DISCONNECT_GRACE_SECONDS = 120;
         const LOCAL_RECOVERY_KEY = `attempt-recovery-${attemptId}`;
+        const FACE_DETECTION_INTERVAL_MS = 1800;
+        const FACE_GAZE_FRAMES_REQUIRED = 4;
+        const FACE_GAZE_VIOLATION_LIMIT = 8;
+        const FACE_GAZE_COOLDOWN_MS = 10000;
+        const FACE_CENTER_SMOOTHING = 0.22;
+        const FACE_HORIZONTAL_MARGIN = 0.21;
+        const FACE_VERTICAL_MARGIN = 0.24;
+        const FACE_MIN_CONFIDENCE = 0.5;
+        const FACE_MIN_AREA_RATIO = 0.04;
+        const FACE_MAX_AREA_RATIO = 0.72;
+        const OBJECT_DETECTION_INTERVAL_MS = 3000;
+        const OBJECT_MIN_CONFIDENCE = 0.5;
 
         function setRecordingStatus(type, state = 'amber') {
             const elementId = type === 'webcam' ? 'webcamRecordingStatus' : 'screenRecordingStatus';
@@ -416,7 +456,7 @@
                 }
 
                 examData = await api.exams.getDetails(attemptStatus.exam_id); 
-                timeRemaining = attemptStatus.time_remaining_seconds || (examData.duration_minutes * 60);
+                timeRemaining = attemptStatus.time_remaining_seconds ?? (examData.duration_minutes * 60);
                 // Restore saved answers if the student refreshes the page
                 if (attemptStatus.answers && typeof attemptStatus.answers === 'object') {
                     answers = attemptStatus.answers;
@@ -557,7 +597,9 @@
                     if (!proctoringStream || proctoringStream.getVideoTracks().length === 0) {
                         retryProctoringAccess();
                     }
-                    startScreenCaptureFlow(true);
+                    if (!screenCaptureStream) {
+                        showToast('Screen recording is optional. Use the sidebar button if you want to start it.', 'info');
+                    }
                     if (audioContext && audioContext.state === 'suspended') {
                         audioContext.resume().catch(() => {});
                     }
@@ -1005,8 +1047,7 @@
                 const FACE_MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
                 await Promise.all([
                     faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
-                    faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
-                    faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL)
+                    faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL)
                 ]);
                 startFaceDetection();
             } catch (err) {
@@ -1184,8 +1225,15 @@
             let lastGazeDirection = null;
             let consecutiveMultiFace = 0;
             let multiPersonWarnings = 0;
+            let faceDetectionBusy = false;
+            let smoothedFaceX = 0.5;
+            let smoothedFaceY = 0.5;
+            let hasFaceBaseline = false;
+            let gazeCooldownUntil = 0;
             
             faceDetectionInterval = setInterval(async () => {
+                if (faceDetectionBusy) return;
+                faceDetectionBusy = true;
                 try {
                     if (examFinalized || video.readyState < 2) return;
                     const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
@@ -1199,18 +1247,18 @@
                         faceStatus.className = 'status-dot dot-red';
                         container.className = 'mb-4 border-2 border-red-500 transition-colors duration-300';
                         
-                        if (consecutiveNoFace === 4) {
+                        if (consecutiveNoFace === 5) {
                             totalFaceTurnViolations++;
-                            await logViolation('face_not_detected', `Face not visible - look back at the screen (${totalFaceTurnViolations}/5)`, 'warning');
-                            showToast(`Face not visible. Look back at the screen (${totalFaceTurnViolations}/5)`, 'error');
+                            await logViolation('face_not_detected', `Face not visible - look back at the screen (${totalFaceTurnViolations}/7)`, 'warning');
+                            showToast(`Face not visible. Look back at the screen (${totalFaceTurnViolations}/7)`, 'warning');
                         }
-                        if (consecutiveNoFace > 4 && consecutiveNoFace % 4 === 0) {
+                        if (consecutiveNoFace > 5 && consecutiveNoFace % 5 === 0) {
                             totalFaceTurnViolations++;
-                            await logViolation('face_not_detected', `Face still not visible (${totalFaceTurnViolations}/5)`, 'critical');
-                            showToast(`Face still not visible (${totalFaceTurnViolations}/5)`, 'error');
+                            await logViolation('face_not_detected', `Face still not visible (${totalFaceTurnViolations}/7)`, 'warning');
+                            showToast(`Face still not visible (${totalFaceTurnViolations}/7)`, 'warning');
                         }
                         
-                        if (totalFaceTurnViolations >= 5) {
+                        if (totalFaceTurnViolations >= 7) {
                             await forceEndExam('Repeatedly not facing the camera');
                         }
                     } else if (detections.length > 1) {
@@ -1219,7 +1267,7 @@
                         faceStatus.className = 'status-dot dot-red';
                         container.className = 'mb-4 border-2 border-red-500 transition-colors duration-300';
                         
-                        if (consecutiveMultiFace >= 3) {
+                        if (consecutiveMultiFace >= 4) {
                             multiPersonWarnings++;
                             await logViolation('multiple_faces', `Multiple persons detected (warning ${multiPersonWarnings}/3)`, 'critical');
                             showToast(`Multiple persons detected (${multiPersonWarnings}/3)`, 'error');
@@ -1245,27 +1293,36 @@
                         const faceCenterY = box.y + box.height / 2;
                         const faceRelativeX = faceCenterX / videoWidth;
                         const faceRelativeY = faceCenterY / videoHeight;
-                        
-                        const faceAspect = box.width / box.height;
-                        const gazeDirection = calculateGazeDirection(landmarks);
-                        
-                        const nose = landmarks.getNose();
-                        let landmarkDirection = 'center';
-                        if (nose && nose.length > 3) {
-                            const noseTip = nose[3];
-                            const noseRelX = (noseTip.x - box.x) / box.width;
-                            if (noseRelX < 0.33) landmarkDirection = 'left';
-                            else if (noseRelX > 0.67) landmarkDirection = 'right';
+                        const faceConfidence = detection.detection?.score ?? 0;
+                        const faceAreaRatio = (box.width * box.height) / (videoWidth * videoHeight);
+                        const hasReliableFace =
+                            faceConfidence >= FACE_MIN_CONFIDENCE &&
+                            faceAreaRatio >= FACE_MIN_AREA_RATIO &&
+                            faceAreaRatio <= FACE_MAX_AREA_RATIO;
+
+                        if (!hasReliableFace) {
+                            faceStatus.className = 'status-dot dot-amber';
+                            consecutiveSameGaze = 0;
+                            lastGazeDirection = null;
+                            return;
                         }
-                        
+
+                        if (!hasFaceBaseline) {
+                            smoothedFaceX = faceRelativeX;
+                            smoothedFaceY = faceRelativeY;
+                            hasFaceBaseline = true;
+                        } else {
+                            smoothedFaceX = smoothedFaceX + (faceRelativeX - smoothedFaceX) * FACE_CENTER_SMOOTHING;
+                            smoothedFaceY = smoothedFaceY + (faceRelativeY - smoothedFaceY) * FACE_CENTER_SMOOTHING;
+                        }
+
+                        const horizontalDelta = smoothedFaceX - 0.5;
+                        const verticalDelta = smoothedFaceY - 0.5;
                         let headDirection = 'center';
-                        if (faceRelativeX < 0.28) headDirection = 'right';
-                        else if (faceRelativeX > 0.72) headDirection = 'left';
-                        else if (faceRelativeY < 0.24) headDirection = 'up';
-                        else if (faceRelativeY > 0.76) headDirection = 'down';
-                        else if (faceAspect < 0.72) headDirection = faceRelativeX < 0.5 ? 'right' : 'left';
-                        else if (gazeDirection !== 'center') headDirection = gazeDirection;
-                        else if (landmarkDirection !== 'center') headDirection = landmarkDirection;
+                        if (horizontalDelta < -FACE_HORIZONTAL_MARGIN) headDirection = 'right';
+                        else if (horizontalDelta > FACE_HORIZONTAL_MARGIN) headDirection = 'left';
+                        else if (verticalDelta < -FACE_VERTICAL_MARGIN) headDirection = 'up';
+                        else if (verticalDelta > FACE_VERTICAL_MARGIN) headDirection = 'down';
                         
                         if (headDirection !== 'center') {
                             if (lastGazeDirection === headDirection) {
@@ -1274,15 +1331,16 @@
                                 consecutiveSameGaze = 1;
                             }
                             lastGazeDirection = headDirection;
-                            
-                            if (consecutiveSameGaze >= 2) {
+
+                            if (consecutiveSameGaze >= FACE_GAZE_FRAMES_REQUIRED && Date.now() >= gazeCooldownUntil) {
                                 totalGazeViolations++;
-                                const message = `Head turned ${headDirection} detected (${totalGazeViolations}/5) - Focus on screen!`;
+                                gazeCooldownUntil = Date.now() + FACE_GAZE_COOLDOWN_MS;
+                                const message = `Head turned ${headDirection} detected (${totalGazeViolations}/${FACE_GAZE_VIOLATION_LIMIT}) - Focus on screen!`;
                                 await logViolation('gaze_violation', message, 'warning');
                                 showToast(message, 'warning');
                                 consecutiveSameGaze = 0;
                                 
-                                if (totalGazeViolations >= 5) {
+                                if (totalGazeViolations >= FACE_GAZE_VIOLATION_LIMIT) {
                                     await forceEndExam('Excessive gaze violations - looking away from screen');
                                 }
                             }
@@ -1293,8 +1351,10 @@
                     }
                 } catch (error) {
                     console.error('Face detection error:', error);
+                } finally {
+                    faceDetectionBusy = false;
                 }
-            }, 900);
+            }, FACE_DETECTION_INTERVAL_MS);
         }
 
         function calculateGazeDirection(landmarks) {
@@ -1348,14 +1408,17 @@
             console.log('Object detection started');
             let objectCooldown = false;
             let consecutiveBannedDetections = 0;
+            let objectDetectionBusy = false;
             objectDetectionInterval = setInterval(async () => {
+                if (objectDetectionBusy) return;
+                objectDetectionBusy = true;
                 try {
                     if (examFinalized) return;
                     if (video.readyState < 2) return;
                     const predictions = await model.detect(video);
                     const banned = ['cell phone', 'book', 'tablet', 'remote', 'laptop'];
                     const suspiciousObject = predictions
-                        .filter(p => banned.includes((p.class || '').toLowerCase()) && p.score > 0.38)
+                        .filter(p => banned.includes((p.class || '').toLowerCase()) && p.score >= OBJECT_MIN_CONFIDENCE)
                         .sort((a, b) => b.score - a.score)[0];
                     const detected = !!suspiciousObject;
 
@@ -1365,7 +1428,7 @@
                         consecutiveBannedDetections = 0;
                     }
 
-                    if (detected && consecutiveBannedDetections >= 1 && !objectCooldown) {
+                    if (detected && consecutiveBannedDetections >= 2 && !objectCooldown) {
                         objectCooldown = true;
                         const objectName = suspiciousObject.class;
                         logViolation('object_detected', `${objectName} detected with ${Math.round(suspiciousObject.score * 100)}% confidence`, 'critical');
@@ -1378,8 +1441,10 @@
                     objectStatus.className = detected ? 'status-dot dot-red' : 'status-dot dot-green';
                 } catch (err) {
                     console.error('Object detection error:', err);
+                } finally {
+                    objectDetectionBusy = false;
                 }
-            }, 1400);
+            }, OBJECT_DETECTION_INTERVAL_MS);
         }
 
         function startVoiceDetection(stream) {
@@ -1418,13 +1483,13 @@
                     }
 
                     const ambientAvg = ambientSum / calibrationDuration;
-                    const voiceThreshold = Math.max(0.02, ambientAvg * 1.35);
+                    const voiceThreshold = Math.max(0.015, ambientAvg * 1.2);
                     
                     if (rms > voiceThreshold) {
                         consecutiveHighVolume++;
                         voiceStatus.className = 'status-dot dot-amber';
                         
-                        if (consecutiveHighVolume >= 4) {
+                        if (consecutiveHighVolume >= 3) {
                             voiceViolationCount++;
                             await logViolation('voice_detected', `Speaking detected during exam (warning ${voiceViolationCount}/5)`, 'warning');
                             showVoiceWarning(voiceViolationCount);
@@ -1521,6 +1586,51 @@
                 input.value = '';
             } catch (err) {
                 showToast(err.message, 'error');
+            }
+        }
+
+        function showMessagesTab() {
+            document.getElementById('chatContainer').classList.remove('hidden');
+            document.getElementById('calculatorContainer').classList.add('hidden');
+            document.getElementById('messagesTabBtn').classList.add('text-[#135bec]', 'border-b-2', 'border-[#135bec]');
+            document.getElementById('messagesTabBtn').classList.remove('text-slate-400');
+            document.getElementById('calculatorTabBtn').classList.add('text-slate-400');
+            document.getElementById('calculatorTabBtn').classList.remove('text-[#135bec]', 'border-b-2', 'border-[#135bec]');
+        }
+
+        function showCalculatorTab() {
+            document.getElementById('chatContainer').classList.add('hidden');
+            document.getElementById('calculatorContainer').classList.remove('hidden');
+            document.getElementById('calculatorTabBtn').classList.add('text-[#135bec]', 'border-b-2', 'border-[#135bec]');
+            document.getElementById('calculatorTabBtn').classList.remove('text-slate-400');
+            document.getElementById('messagesTabBtn').classList.add('text-slate-400');
+            document.getElementById('messagesTabBtn').classList.remove('text-[#135bec]', 'border-b-2', 'border-[#135bec]');
+        }
+
+        function appendCalculator(value) {
+            const display = document.getElementById('calculatorDisplay');
+            if (!display) return;
+            if (display.value === '0' || display.value === 'Error') {
+                display.value = value === '.' ? '0.' : value;
+                return;
+            }
+            display.value += value;
+        }
+
+        function clearCalculator() {
+            const display = document.getElementById('calculatorDisplay');
+            if (display) display.value = '0';
+        }
+
+        function evaluateCalculator() {
+            const display = document.getElementById('calculatorDisplay');
+            if (!display) return;
+            try {
+                const expression = display.value.replace(/[^0-9.+\-*/() ]/g, '');
+                const result = Function(`"use strict"; return (${expression})`)();
+                display.value = Number.isFinite(result) ? result : 'Error';
+            } catch (err) {
+                display.value = 'Error';
             }
         }
 

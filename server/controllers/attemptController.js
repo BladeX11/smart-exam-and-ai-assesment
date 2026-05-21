@@ -55,6 +55,37 @@ const writeRecordingMetadata = async (attemptId, metadata) => {
 
 const getRecordingPublicUrl = (attemptId, fileName) => `/recordings/attempt-${attemptId}/${fileName}`;
 
+const hasMissingLongAnswerColumnsError = (error) => {
+  const message = `${error?.message || ''}`.toLowerCase();
+  return message.includes('sample_answer') || message.includes('grading_keywords');
+};
+
+const getExamQuestionsForScoring = async (examId) => {
+  const scoringQuery = `SELECT eq.question_bank_id, eq.marks, qb.correct_answer, qb.question_type, qb.question_text, qb.sample_answer, qb.grading_keywords
+     FROM exam_questions eq
+     JOIN question_bank qb ON eq.question_bank_id = qb.id
+     WHERE eq.exam_id = ?`;
+
+  try {
+    const [questions] = await pool.query(scoringQuery, [examId]);
+    return questions;
+  } catch (error) {
+    if (!hasMissingLongAnswerColumnsError(error)) {
+      throw error;
+    }
+
+    const [fallbackQuestions] = await pool.query(
+      `SELECT eq.question_bank_id, eq.marks, qb.correct_answer, qb.question_type, qb.question_text,
+              NULL AS sample_answer, NULL AS grading_keywords
+         FROM exam_questions eq
+         JOIN question_bank qb ON eq.question_bank_id = qb.id
+         WHERE eq.exam_id = ?`,
+      [examId]
+    );
+    return fallbackQuestions;
+  }
+};
+
 export const finalizeAttempt = async (attemptId, forceReason = null) => {
   const attempt = await getAttemptWithExamOwner(attemptId);
   if (!attempt) {
@@ -73,13 +104,7 @@ export const finalizeAttempt = async (attemptId, forceReason = null) => {
   }
 
   // Calculate score
-  const [questions] = await pool.query(
-    `SELECT eq.question_bank_id, eq.marks, qb.correct_answer, qb.question_type, qb.question_text, qb.sample_answer, qb.grading_keywords
-     FROM exam_questions eq
-     JOIN question_bank qb ON eq.question_bank_id = qb.id
-     WHERE eq.exam_id = ?`,
-    [attempt.exam_id]
-  );
+  const questions = await getExamQuestionsForScoring(attempt.exam_id);
 
   let score = 0;
   let studentAnswers = {};
@@ -608,11 +633,19 @@ export const getAttemptStatus = async (req, res) => {
     let parsedLongAnswers = {};
     try { parsedAnswers = typeof attempt.answers === 'string' ? JSON.parse(attempt.answers || '{}') : (attempt.answers || {}); } catch { parsedAnswers = {}; }
     try { parsedLongAnswers = typeof attempt.long_answers === 'string' ? JSON.parse(attempt.long_answers || '{}') : (attempt.long_answers || {}); } catch { parsedLongAnswers = {}; }
+    const liveAtiScore = calculateATI(attempt);
+    const finalizedAttempt = attempt.status === 'submitted' || attempt.status === 'force_ended';
+    const resolvedAtiScore = finalizedAttempt ? (attempt.ati_score ?? liveAtiScore) : liveAtiScore;
+    const resolvedRiskLevel = finalizedAttempt
+      ? (attempt.risk_level || getRiskLevel(resolvedAtiScore))
+      : getRiskLevel(resolvedAtiScore);
 
     const result = {
       ...attempt,
       answers: parsedAnswers,
       long_answers: parsedLongAnswers,
+      ati_score: resolvedAtiScore,
+      risk_level: resolvedRiskLevel,
       exam_title: exam[0]?.title,
       total_marks: exam[0]?.total_marks,
       exam_status: exam[0]?.status
